@@ -1,10 +1,11 @@
 {
-  "name": "promptgraph",
+  "name": "promptgraph-mcp",
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
   "bin": {
-    "promptgraph": "./index.js"
+    "promptgraph": "./index.js",
+    "promptgraph-mcp": "./index.js"
   },
   "scripts": {
     "start": "node index.js",

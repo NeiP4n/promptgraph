@@ -34,7 +34,7 @@ When you ask Claude a question, it calls `pg_search("your task")` → finds the 
 ### Via npx (recommended)
 
 ```bash
-npx promptgraph init
+npx promptgraph-mcp init
 ```
 
 ### From source
@@ -62,7 +62,7 @@ promptgraph init
   "mcpServers": {
     "promptgraph": {
       "command": "npx",
-      "args": ["promptgraph"]
+      "args": ["promptgraph-mcp"]
     }
   }
 }
