@@ -17,8 +17,8 @@ if (args[0] === 'init') {
   console.log(JSON.stringify({
     mcpServers: {
       promptgraph: {
-        command: 'node',
-        args: [process.argv[1]],
+        command: 'npx',
+        args: ['promptgraph-mcp'],
       }
     }
   }, null, 2));
