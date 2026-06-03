@@ -9,6 +9,22 @@ import { promptConfig } from './config.js';
 
 const args = process.argv.slice(2);
 
+if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
+  console.log(`
+PromptGraph — semantic skill router for Claude Code
+
+Usage:
+  promptgraph-mcp init      First-time setup + index all skills
+  promptgraph-mcp reindex   Re-index all skills
+  promptgraph-mcp           Start MCP server (used by Claude)
+  promptgraph-mcp help      Show this help
+
+GitHub: https://github.com/NeiP4n/promptgraph
+npm:    https://npmjs.com/package/promptgraph-mcp
+  `);
+  process.exit(0);
+}
+
 if (args[0] === 'init') {
   const config = await promptConfig();
   console.log('\nIndexing skills...');

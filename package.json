@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "type": "module",
   "bin": {
@@ -12,7 +12,14 @@
     "init": "node index.js init",
     "reindex": "node index.js reindex"
   },
-  "keywords": ["claude", "claude-code", "mcp", "ai", "skills", "embeddings"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "ai",
+    "skills",
+    "embeddings"
+  ],
   "author": "NeiP4n",
   "license": "MIT",
   "description": "Semantic skill router for Claude Code — load only the skills you need, save 20k+ tokens per session",
