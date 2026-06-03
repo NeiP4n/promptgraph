@@ -32,7 +32,7 @@ When you ask Claude a question, it calls `pg_search("your task")` → finds the 
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/promptgraph
+git clone https://github.com/NeiP4n/promptgraph
 cd promptgraph
 npm install
 node index.js init
