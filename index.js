@@ -6,6 +6,8 @@ import { search, getContext, getCallers, getCallees, getImpact, listAll } from '
 import { indexAll } from './indexer.js';
 import { startWatcher } from './watcher.js';
 import { promptConfig } from './config.js';
+import { importFromGitHub } from './github-import.js';
+import { detectPlatforms, PLATFORMS } from './platform.js';
 
 const args = process.argv.slice(2);
 
@@ -14,14 +16,39 @@ if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
 PromptGraph — semantic skill router for Claude Code
 
 Usage:
-  promptgraph-mcp init      First-time setup + index all skills
-  promptgraph-mcp reindex   Re-index all skills
-  promptgraph-mcp           Start MCP server (used by Claude)
-  promptgraph-mcp help      Show this help
+  promptgraph-mcp init                  First-time setup + index all skills
+  promptgraph-mcp reindex               Re-index all skills
+  promptgraph-mcp import <owner/repo>   Import skills from GitHub repo
+  promptgraph-mcp setup <platform>      Register MCP in platform config
+  promptgraph-mcp                       Start MCP server (used by Claude)
+  promptgraph-mcp help                  Show this help
+
+Platforms: claude-code, claude-desktop, cline, codex, cursor, windsurf
 
 GitHub: https://github.com/NeiP4n/promptgraph
 npm:    https://npmjs.com/package/promptgraph-mcp
   `);
+  process.exit(0);
+}
+
+if (args[0] === 'import') {
+  await importFromGitHub(args[1]);
+  process.exit(0);
+}
+
+if (args[0] === 'setup') {
+  const platformId = args[1];
+  if (!platformId) {
+    const detected = detectPlatforms();
+    console.log('Detected platforms:');
+    detected.forEach(p => console.log(`  - ${p.id}: ${p.name}`));
+    console.log('\nUsage: promptgraph-mcp setup <platform-id>');
+  } else {
+    const platform = PLATFORMS[platformId];
+    if (!platform) { console.error(`Unknown platform: ${platformId}`); process.exit(1); }
+    platform.addMcp(platform);
+    console.log(`✓ Registered promptgraph MCP in ${platform.name} (${platform.configPath})`);
+  }
   process.exit(0);
 }
 

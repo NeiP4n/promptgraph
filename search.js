@@ -4,18 +4,26 @@ import { getDb } from './db.js';
 export async function search(query, topK = 5) {
   const db = getDb();
   const queryVec = await embed(query);
-  const skills = db.prepare('SELECT name, description, path, source, embedding FROM skills').all();
 
-  return skills
-    .map(skill => ({
-      name: skill.name,
-      description: skill.description,
-      path: skill.path,
-      source: skill.source,
-      score: cosineSimilarity(queryVec, JSON.parse(skill.embedding)),
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
+  // RAG: search over chunks, deduplicate by skill
+  const chunks = db.prepare('SELECT skill_name, embedding FROM chunks').all();
+
+  const bestBySkill = new Map();
+  for (const chunk of chunks) {
+    const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
+    const prev = bestBySkill.get(chunk.skill_name);
+    if (!prev || score > prev) bestBySkill.set(chunk.skill_name, score);
+  }
+
+  const skillNames = [...bestBySkill.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topK)
+    .map(([name]) => name);
+
+  return skillNames.map(name => {
+    const skill = db.prepare('SELECT name, description, path, source FROM skills WHERE name = ?').get(name);
+    return { ...skill, score: bestBySkill.get(name) };
+  });
 }
 
 export function getContext(name) {
@@ -24,7 +32,7 @@ export function getContext(name) {
   if (!skill) return null;
   const callees = db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(name).map(r => r.to_skill);
   const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(name).map(r => r.from_skill);
-  return { ...skill, embedding: undefined, callees, callers };
+  return { ...skill, callees, callers };
 }
 
 export function getCallers(name) {

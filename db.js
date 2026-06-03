@@ -17,8 +17,16 @@ export function getDb() {
       description TEXT,
       path TEXT NOT NULL,
       source TEXT NOT NULL,
-      content TEXT NOT NULL,
-      embedding TEXT
+      content TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS chunks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      embedding TEXT NOT NULL,
+      UNIQUE(skill_name, chunk_index)
     );
 
     CREATE TABLE IF NOT EXISTS edges (
