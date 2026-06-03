@@ -1,0 +1,23 @@
+{
+  "name": "promptgraph",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "init": "node index.js init",
+    "reindex": "node index.js reindex"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.10.0",
+    "chokidar": "^5.0.0",
+    "fastembed": "^2.1.0",
+    "glob": "^13.0.6",
+    "gray-matter": "^4.0.3"
+  }
+}

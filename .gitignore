@@ -1,0 +1,4 @@
+node_modules/
+*.db
+model-cache/
+config.json
