@@ -1,4 +1,5 @@
 node_modules/
 *.db
 model-cache/
+local_cache/
 config.json
