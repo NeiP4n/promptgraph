@@ -31,11 +31,20 @@ When you ask Claude a question, it calls `pg_search("your task")` → finds the 
 
 ## Installation
 
+### Via npx (recommended)
+
+```bash
+npx promptgraph init
+```
+
+### From source
+
 ```bash
 git clone https://github.com/NeiP4n/promptgraph
 cd promptgraph
 npm install
-node index.js init
+npm link
+promptgraph init
 ```
 
 `init` will:
@@ -52,8 +61,8 @@ node index.js init
 {
   "mcpServers": {
     "promptgraph": {
-      "command": "node",
-      "args": ["/path/to/promptgraph/index.js"]
+      "command": "npx",
+      "args": ["promptgraph"]
     }
   }
 }
@@ -98,8 +107,8 @@ mv ~/.claude/skills-store/pg.md ~/.claude/commands/
 ## Commands
 
 ```bash
-node index.js init      # First-time setup (interactive)
-node index.js reindex   # Re-index all skills
+promptgraph init      # First-time setup (interactive)
+promptgraph reindex   # Re-index all skills
 ```
 
 ## MCP Tools

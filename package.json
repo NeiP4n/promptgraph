@@ -3,15 +3,26 @@
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
+  "bin": {
+    "promptgraph": "./index.js"
+  },
   "scripts": {
     "start": "node index.js",
     "init": "node index.js init",
     "reindex": "node index.js reindex"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": ["claude", "claude-code", "mcp", "ai", "skills", "embeddings"],
+  "author": "NeiP4n",
+  "license": "MIT",
+  "description": "Semantic skill router for Claude Code — load only the skills you need, save 20k+ tokens per session",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeiP4n/promptgraph.git"
+  },
+  "homepage": "https://github.com/NeiP4n/promptgraph#readme",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.10.0",
