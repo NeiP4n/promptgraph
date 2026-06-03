@@ -44,7 +44,7 @@ git clone https://github.com/NeiP4n/promptgraph
 cd promptgraph
 npm install
 npm link
-promptgraph init
+promptgraph-mcp init
 ```
 
 `init` will:
@@ -107,8 +107,8 @@ mv ~/.claude/skills-store/pg.md ~/.claude/commands/
 ## Commands
 
 ```bash
-promptgraph init      # First-time setup (interactive)
-promptgraph reindex   # Re-index all skills
+promptgraph-mcp init      # First-time setup (interactive)
+promptgraph-mcp reindex   # Re-index all skills
 ```
 
 ## MCP Tools
