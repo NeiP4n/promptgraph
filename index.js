@@ -62,7 +62,9 @@ if (!args[0] && process.stdin.isTTY) {
   process.exit(0);
 }
 
-if (!KNOWN_COMMANDS.has(args[0])) {
+// Only reject an EXPLICIT unknown command. With no args (args[0] undefined),
+// fall through to start the MCP server — never print to stdout here.
+if (args[0] && !KNOWN_COMMANDS.has(args[0])) {
   console.log(chalk.red('✗') + '  Unknown command: ' + chalk.white(args[0]));
   console.log(chalk.gray('  Run `' + bin + ' help` to see available commands.\n'));
   process.exit(1);
