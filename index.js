@@ -1,15 +1,7 @@
 #!/usr/bin/env node
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { search, getContext, getCallers, getCallees, getImpact, listAll } from './search.js';
-import { indexAll } from './indexer.js';
-import { startWatcher } from './watcher.js';
-import { promptConfig } from './config.js';
-import { importFromGitHub } from './github-import.js';
-import { detectPlatforms, PLATFORMS } from './platform.js';
-import { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail, browseBundles, installBundle } from './marketplace.js';
-
+// Only lightweight imports at top. Heavy modules (fastembed/ONNX, vectra,
+// better-sqlite3) are dynamically imported inside the command that needs them,
+// so fast CLI commands (help, marketplace) start instantly.
 import { colors, banner, success, error, info, section, table } from './cli.js';
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -222,11 +214,13 @@ if (args[0] === 'validate') {
 }
 
 if (args[0] === 'import') {
+  const { importFromGitHub } = await import('./github-import.js');
   await importFromGitHub(args[1]);
   process.exit(0);
 }
 
 if (args[0] === 'setup') {
+  const { detectPlatforms, PLATFORMS } = await import('./platform.js');
   const platformId = args[1];
   if (!platformId) {
     section('Detected platforms');
@@ -243,6 +237,8 @@ if (args[0] === 'setup') {
 }
 
 if (args[0] === 'init') {
+  const { promptConfig } = await import('./config.js');
+  const { indexAll } = await import('./indexer.js');
   const config = await promptConfig();
   await indexAll();
   console.log();
@@ -257,9 +253,18 @@ if (args[0] === 'init') {
 }
 
 if (args[0] === 'reindex') {
+  const { indexAll } = await import('./indexer.js');
   await indexAll();
   process.exit(0);
 }
+
+// ── MCP server mode (no CLI command) ──
+const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+const { search, getContext, getCallers, getCallees, getImpact, listAll } = await import('./search.js');
+const { startWatcher } = await import('./watcher.js');
+const { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail, browseBundles, installBundle } = await import('./marketplace.js');
 
 const server = new Server(
   { name: 'promptgraph', version: '1.0.0' },

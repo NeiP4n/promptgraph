@@ -16,10 +16,10 @@ export function codeFor(id) {
   return 'pg-' + createHash('md5').update(String(id)).digest('hex').slice(0, 6);
 }
 
-// Robust fetch: try undici fetch, fall back to node:https (works where undici fails on Windows)
+// node:https GET — reliable and fast on Windows (undici fetch can hang ~10s there).
 function httpGet(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'promptgraph-mcp' } }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'promptgraph-mcp' }, timeout: 8000, family: 4 }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return httpGet(res.headers.location).then(resolve, reject);
       }
@@ -31,18 +31,49 @@ function httpGet(url) {
       res.setEncoding('utf8');
       res.on('data', c => data += c);
       res.on('end', () => resolve(data));
-    }).on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(new Error('request timed out')); });
+    req.on('error', reject);
   });
 }
 
-async function fetchText(url) {
+// Primary path is httpGet (fast/reliable on Windows); undici fetch only as fallback.
+async function rawFetch(url) {
   try {
+    return await httpGet(url);
+  } catch {
     const res = await fetch(url, { headers: { 'User-Agent': 'promptgraph-mcp' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
-  } catch {
-    return await httpGet(url);
   }
+}
+
+// Disk cache for the registry (network to GitHub raw can be slow on some networks).
+const CACHE_DIR = path.join(os.homedir(), '.claude', '.promptgraph');
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function fetchText(url) {
+  const cacheFile = path.join(CACHE_DIR, 'registry-cache.json');
+  const isRegistry = url === REGISTRY_URL;
+
+  if (isRegistry && fs.existsSync(cacheFile)) {
+    try {
+      const stat = fs.statSync(cacheFile);
+      if (Date.now() - stat.mtimeMs < CACHE_TTL) {
+        return fs.readFileSync(cacheFile, 'utf8');
+      }
+    } catch {}
+  }
+
+  const text = await rawFetch(url);
+
+  if (isRegistry) {
+    try {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+      fs.writeFileSync(cacheFile, text);
+    } catch {}
+  }
+  return text;
 }
 
 export async function browseMarketplace(topK = 20) {
