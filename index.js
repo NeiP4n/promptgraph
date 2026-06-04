@@ -15,9 +15,12 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 
 const args = process.argv.slice(2);
-const bin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '') || 'pg';
+// argv[1] is the resolved index.js path (esp. on Windows global installs),
+// so derive a friendly name instead of showing "index".
+const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
+const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'marketplace', 'help', '--help', '-h']);
 
 function showHelp() {
   console.log(
@@ -32,6 +35,7 @@ function showHelp() {
     ['init',                'First-time setup + index all skills'],
     ['reindex',             'Re-index all skills'],
     ['import <owner/repo>', 'Import skills from GitHub'],
+    ['marketplace [page]',  'Browse the community skill registry'],
     ['validate <file.md>',  'Validate a skill before publishing'],
     ['setup <platform>',    'Register MCP in platform config'],
     ['help',                'Show this help'],
@@ -52,6 +56,55 @@ if (!KNOWN_COMMANDS.has(args[0])) {
   console.log(chalk.red('✗') + '  Unknown command: ' + chalk.white(args[0]));
   console.log(chalk.gray('  Run `' + bin + ' help` to see available commands.\n'));
   process.exit(1);
+}
+
+if (args[0] === 'marketplace') {
+  const { browseMarketplace } = await import('./marketplace.js');
+  const PER_PAGE = 10;
+  const page = Math.max(1, parseInt(args[1]) || 1);
+
+  const spin = (await import('./cli.js')).spinner('Fetching registry...');
+  spin.start();
+  const all = await browseMarketplace(1000);
+  spin.stop();
+
+  if (all?.error) {
+    error(all.error);
+    process.exit(1);
+  }
+  if (!all.length) {
+    info('Registry is empty. Be the first to contribute!');
+    console.log(chalk.gray('  github.com/NeiP4n/promptgraph-registry\n'));
+    process.exit(0);
+  }
+
+  const totalPages = Math.ceil(all.length / PER_PAGE);
+  const slice = all.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  console.log(
+    boxen(
+      chalk.hex('#7C3AED').bold('Marketplace') + '  ' +
+      chalk.gray(`page ${page}/${totalPages}  ·  ${all.length} skills`),
+      { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
+    )
+  );
+  console.log();
+  for (const s of slice) {
+    const stars = s.stars ? chalk.yellow('★ ' + s.stars) : chalk.gray('★ 0');
+    console.log('  ' + chalk.white.bold(s.id) + '  ' + stars);
+    console.log('  ' + chalk.gray((s.description || '').slice(0, 80)));
+    if (s.tags?.length) console.log('  ' + chalk.hex('#7C3AED')(s.tags.map(t => '#' + t).join(' ')));
+    console.log();
+  }
+
+  if (totalPages > 1) {
+    const nav = [];
+    if (page > 1) nav.push(`${bin} marketplace ${page - 1}`);
+    if (page < totalPages) nav.push(`${bin} marketplace ${page + 1}`);
+    console.log(chalk.gray('  ' + nav.join('   ·   ')));
+  }
+  console.log(chalk.gray('\n  To install or publish, ask your AI assistant — it uses the pg_marketplace_* tools.\n'));
+  process.exit(0);
 }
 
 if (args[0] === 'validate') {
