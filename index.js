@@ -90,7 +90,7 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
   spin.start();
   const bundles = await browseBundles(1000);
   spin.stop();
-  console.clear();
+  (await import('./cli.js')).clearScreen();
 
   if (bundles?.error) { error(bundles.error); process.exit(1); }
 
@@ -134,11 +134,12 @@ if (args[0] === 'marketplace') {
   const PER_PAGE = 10;
   const page = Math.max(1, parseInt(args[1]) || 1);
 
+  const { clearScreen } = await import('./cli.js');
   const spin = (await import('./cli.js')).spinner('Fetching registry...');
   spin.start();
   const all = await browseMarketplace(1000);
   spin.stop();
-  console.clear();
+  clearScreen();
 
   if (all?.error) {
     error(all.error);
@@ -154,6 +155,7 @@ if (args[0] === 'marketplace') {
   const startIdx = (page - 1) * PER_PAGE;
   const slice = all.slice(startIdx, startIdx + PER_PAGE);
   const purple = chalk.hex('#7C3AED');
+  const W = 60;
 
   const wrap = (text, width, indent) => {
     const words = (text || '').split(/\s+/);
@@ -164,38 +166,41 @@ if (args[0] === 'marketplace') {
       else line += ' ' + w;
     }
     if (line.trim()) lines.push(line.trim());
-    return lines.map(l => indent + chalk.gray(l)).join('\n');
+    return lines.map(l => indent + chalk.dim(l)).join('\n');
   };
 
+  // header
   console.log();
-  console.log('  ' + purple.bold('PromptGraph Marketplace'));
-  console.log('  ' + chalk.gray(`${all.length} skill${all.length === 1 ? '' : 's'}  ·  page ${page}/${totalPages}`));
-  console.log('  ' + chalk.gray('─'.repeat(54)));
-  console.log();
+  console.log('  ' + purple.bold('◆ PromptGraph') + chalk.dim('  ·  marketplace'));
+  console.log('  ' + chalk.dim(`${all.length} skills`) + chalk.dim(totalPages > 1 ? `   ·   page ${page}/${totalPages}` : ''));
+  console.log(chalk.dim('  ' + '━'.repeat(W)));
 
   slice.forEach((s, i) => {
-    const num = chalk.gray(String(startIdx + i + 1).padStart(2) + '.');
-    const stars = (s.stars > 0 ? chalk.yellow('★ ' + s.stars) : chalk.gray('★ 0'));
-    const code = s.code ? chalk.bgHex('#2A2440').hex('#C4B5FD')(` ${s.code} `) : '';
-    console.log('  ' + num + ' ' + chalk.white.bold(s.id) + '   ' + stars + '   ' + code);
-    console.log(wrap(s.description, 64, '      '));
-    if (s.tags?.length) console.log('      ' + purple(s.tags.map(t => '#' + t).join(' ')));
-    console.log('      ' + chalk.gray('install:  tell your AI  ') + chalk.cyan(`install ${s.code || s.id}`));
+    const n = chalk.dim(String(startIdx + i + 1).padStart(2));
+    const code = s.code ? chalk.hex('#A78BFA')(s.code) : '';
+    const stars = chalk.yellow('★') + chalk.dim(' ' + (s.stars || 0));
     console.log();
+    // line 1: number, name ........ code, stars
+    const left = `${n}  ${chalk.bold.white(s.id)}`;
+    console.log('  ' + left + '  ' + code + '   ' + stars);
+    // description
+    console.log(wrap(s.description, W - 6, '      '));
+    // tags
+    if (s.tags?.length) console.log('      ' + chalk.dim(s.tags.map(t => '#' + t).join(' ')));
   });
 
-  console.log('  ' + chalk.gray('─'.repeat(54)));
+  console.log();
+  console.log(chalk.dim('  ' + '━'.repeat(W)));
+
   if (totalPages > 1) {
     const nav = [];
-    if (page > 1) nav.push(chalk.cyan(`${bin} marketplace ${page - 1}`) + chalk.gray(' ‹ prev'));
-    if (page < totalPages) nav.push(chalk.gray('next › ') + chalk.cyan(`${bin} marketplace ${page + 1}`));
-    console.log('  ' + nav.join('    '));
-    console.log();
+    if (page > 1) nav.push(chalk.dim('‹ ') + chalk.cyan(`${bin} marketplace ${page - 1}`));
+    if (page < totalPages) nav.push(chalk.cyan(`${bin} marketplace ${page + 1}`) + chalk.dim(' ›'));
+    console.log('  ' + nav.join('     '));
   }
-  console.log('  ' + chalk.gray('To install: tell your AI assistant ') + chalk.cyan('install <code or name>'));
-  console.log('  ' + chalk.gray('e.g. ') + chalk.cyan(`install ${slice[0].code || slice[0].id}`) + chalk.gray('  or  ') + chalk.cyan(`install ${slice[0].id}`));
-  console.log();
-  console.log('  ' + chalk.gray('Curated sets:  ') + chalk.cyan(`${bin} marketplace bundles`) + chalk.gray('   ·   Publish:  ') + chalk.cyan('/pg-publish <file>'));
+  console.log('  ' + chalk.dim('install   ') + chalk.cyan('tell your AI:') + ' ' + chalk.white('install ') + chalk.hex('#A78BFA')(slice[0].code || slice[0].id));
+  console.log('  ' + chalk.dim('bundles   ') + chalk.cyan(`${bin} marketplace bundles`));
+  console.log('  ' + chalk.dim('publish   ') + chalk.cyan('tell your AI:') + ' ' + chalk.white('/pg-publish <file>'));
   console.log();
   process.exit(0);
 }

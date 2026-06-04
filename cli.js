@@ -34,6 +34,11 @@ export function spinner(text) {
   return ora({ text: colors.muted(text), spinner: 'dots', color: 'magenta' });
 }
 
+// Full clear including scrollback (console.clear leaves scrollback on Windows)
+export function clearScreen() {
+  process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+}
+
 export function success(msg) {
   console.log('\n' + colors.success('✓') + '  ' + msg);
 }
