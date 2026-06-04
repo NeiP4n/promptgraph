@@ -37,7 +37,7 @@ export async function promptConfig() {
   const extra = await ask('\nAdd extra skill directories? (comma-separated paths, or press Enter to skip): ');
   rl.close();
 
-  const config = { ...DEFAULTS };
+  const config = structuredClone(DEFAULTS);
 
   if (extra.trim()) {
     const extraDirs = extra.split(',').map(d => d.trim()).filter(Boolean);

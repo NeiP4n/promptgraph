@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "main": "index.js",
   "type": "module",
   "bin": {
@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node index.js",
     "init": "node index.js init",
-    "reindex": "node index.js reindex"
+    "reindex": "node index.js reindex",
+    "test": "vitest run"
   },
   "keywords": [
     "claude",
@@ -43,5 +44,8 @@
     "gray-matter": "^4.0.3",
     "ora": "^9.4.0",
     "vectra": "^0.15.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
   }
 }

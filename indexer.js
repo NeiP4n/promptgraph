@@ -58,11 +58,15 @@ async function indexBatch(db, skills) {
   })();
 
   // pass 2: resolve edges after all skills in batch are committed
+  const resolveSameSource = db.prepare("SELECT id FROM skills WHERE name = ? AND source = ? LIMIT 1");
+  const resolveAny = db.prepare("SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1");
   db.transaction(() => {
     for (const skill of skills) {
       const id = skillId(skill.source, skill.name);
       for (const calledName of skill.calls) {
-        const resolved = db.prepare("SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(calledName);
+        // prefer a skill in the same source, fall back to any, then bare name
+        const same = resolveSameSource.get(calledName, skill.source);
+        const resolved = same || resolveAny.get(calledName);
         upsertEdge.run(id, resolved ? resolved.id : calledName);
       }
     }

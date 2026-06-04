@@ -20,7 +20,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'marketplace', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'help', '--help', '-h']);
 
 function showHelp() {
   console.log(
@@ -37,6 +37,7 @@ function showHelp() {
     ['import <owner/repo>', 'Import skills from GitHub'],
     ['marketplace [page]',  'Browse the community skill registry'],
     ['validate <file.md>',  'Validate a skill before publishing'],
+    ['doctor',              'Clean orphaned chunks/edges/ratings'],
     ['setup <platform>',    'Register MCP in platform config'],
     ['help',                'Show this help'],
   ];
@@ -56,6 +57,19 @@ if (!KNOWN_COMMANDS.has(args[0])) {
   console.log(chalk.red('✗') + '  Unknown command: ' + chalk.white(args[0]));
   console.log(chalk.gray('  Run `' + bin + ' help` to see available commands.\n'));
   process.exit(1);
+}
+
+if (args[0] === 'doctor') {
+  const { runDoctor } = await import('./doctor.js');
+  const spin = (await import('./cli.js')).spinner('Checking database...');
+  spin.start();
+  const r = runDoctor();
+  spin.stop();
+  success('Database checked');
+  info(`Removed: ${r.orphanChunks} chunks, ${r.orphanRatings} ratings, ${r.orphanFromEdges + r.danglingEdges} edges`);
+  if (r.duplicatePaths > 0) info(chalk.yellow(`Warning: ${r.duplicatePaths} duplicate paths`));
+  info(chalk.gray(`Now: ${r.totalSkills} skills, ${r.totalChunks} chunks, ${r.totalEdges} edges`));
+  process.exit(0);
 }
 
 if (args[0] === 'marketplace') {
