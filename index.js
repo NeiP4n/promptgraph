@@ -8,6 +8,7 @@ import { startWatcher } from './watcher.js';
 import { promptConfig } from './config.js';
 import { importFromGitHub } from './github-import.js';
 import { detectPlatforms, PLATFORMS } from './platform.js';
+import { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail } from './marketplace.js';
 
 const args = process.argv.slice(2);
 
@@ -134,6 +135,52 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['name'],
       },
     },
+    {
+      name: 'pg_rate',
+      description: 'Record skill usage outcome. Call after applying a skill: outcome="success" if it helped, "fail" if it did not.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          skill_id: { type: 'string' },
+          outcome: { type: 'string', enum: ['use', 'success', 'fail'] },
+        },
+        required: ['skill_id', 'outcome'],
+      },
+    },
+    {
+      name: 'pg_top_rated',
+      description: 'Get top rated skills by success rate.',
+      inputSchema: {
+        type: 'object',
+        properties: { top_k: { type: 'number' } },
+      },
+    },
+    {
+      name: 'pg_marketplace_browse',
+      description: 'Browse top skills from the PromptGraph marketplace.',
+      inputSchema: {
+        type: 'object',
+        properties: { top_k: { type: 'number' } },
+      },
+    },
+    {
+      name: 'pg_marketplace_install',
+      description: 'Install a skill from the marketplace by ID.',
+      inputSchema: {
+        type: 'object',
+        properties: { skill_id: { type: 'string' } },
+        required: ['skill_id'],
+      },
+    },
+    {
+      name: 'pg_marketplace_publish',
+      description: 'Publish a local skill file to the marketplace via GitHub Gist.',
+      inputSchema: {
+        type: 'object',
+        properties: { file_path: { type: 'string' } },
+        required: ['file_path'],
+      },
+    },
   ],
 }));
 
@@ -149,6 +196,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pg_callers': result = getCallers(args.name); break;
       case 'pg_callees': result = getCallees(args.name); break;
       case 'pg_impact': result = getImpact(args.name); break;
+      case 'pg_rate':
+        if (args.outcome === 'use') recordUse(args.skill_id);
+        else if (args.outcome === 'success') recordSuccess(args.skill_id);
+        else if (args.outcome === 'fail') recordFail(args.skill_id);
+        result = { ok: true };
+        break;
+      case 'pg_top_rated': result = getTopRated(args.top_k || 10); break;
+      case 'pg_marketplace_browse': result = await browseMarketplace(args.top_k || 20); break;
+      case 'pg_marketplace_install': result = await installSkill(args.skill_id); break;
+      case 'pg_marketplace_publish': result = await publishSkill(args.file_path); break;
       default: throw new Error(`Unknown tool: ${name}`);
     }
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };

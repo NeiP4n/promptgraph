@@ -2,6 +2,15 @@ import { embed, cosineSimilarity } from './embedder.js';
 import { getDb } from './db.js';
 import { annSearch } from './ann.js';
 
+function applyRatingBoost(db, id, score) {
+  const r = db.prepare('SELECT success, fail FROM ratings WHERE skill_id = ?').get(id);
+  if (r && (r.success + r.fail) > 3) {
+    const rating = r.success / (r.success + r.fail);
+    return score * (0.85 + 0.15 * rating);
+  }
+  return score;
+}
+
 export async function search(query, topK = 5) {
   const db = getDb();
   const queryVec = await embed(query);
@@ -20,7 +29,7 @@ export async function search(query, topK = 5) {
       .slice(0, topK)
       .map(([id, score]) => {
         const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
-        return skill ? { ...skill, score } : null;
+        return skill ? { ...skill, score: applyRatingBoost(db, id, score) } : null;
       })
       .filter(Boolean);
   }

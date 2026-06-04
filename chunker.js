@@ -1,5 +1,5 @@
-const CHUNK_SIZE = 400;
-const CHUNK_OVERLAP = 80;
+const CHUNK_SIZE = 800;
+const CHUNK_OVERLAP = 100;
 
 export function chunkText(text) {
   const words = text.split(/\s+/);

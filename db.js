@@ -17,7 +17,8 @@ export function getDb() {
       description TEXT,
       path TEXT NOT NULL,
       source TEXT NOT NULL,
-      content TEXT NOT NULL
+      content TEXT NOT NULL,
+      hash TEXT
     );
 
     CREATE TABLE IF NOT EXISTS chunks (
@@ -34,7 +35,20 @@ export function getDb() {
       to_skill TEXT NOT NULL,
       PRIMARY KEY (from_skill, to_skill)
     );
+
+    CREATE TABLE IF NOT EXISTS ratings (
+      skill_id TEXT PRIMARY KEY,
+      uses INTEGER DEFAULT 0,
+      success INTEGER DEFAULT 0,
+      fail INTEGER DEFAULT 0
+    );
   `);
+
+  // migrate: add hash column if missing
+  const cols = db.pragma('table_info(skills)').map(c => c.name);
+  if (!cols.includes('hash')) {
+    db.exec('ALTER TABLE skills ADD COLUMN hash TEXT');
+  }
 
   return db;
 }
