@@ -1,9 +1,10 @@
 {
   "name": "promptgraph-mcp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "main": "index.js",
   "type": "module",
   "bin": {
+    "pg": "./index.js",
     "promptgraph": "./index.js",
     "promptgraph-mcp": "./index.js"
   },

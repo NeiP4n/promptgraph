@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import boxen from 'boxen';
+import fs from 'fs';
 
 export const colors = {
   primary: chalk.hex('#7C3AED'),
@@ -12,10 +13,17 @@ export const colors = {
   bold: chalk.bold,
 };
 
+function getVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+    return pkg.version;
+  } catch { return ''; }
+}
+
 export function banner() {
   console.log(
     boxen(
-      colors.primary.bold('PromptGraph') + '  ' + colors.muted('v' + (await getVersion())) + '\n' +
+      colors.primary.bold('PromptGraph') + '  ' + colors.muted('v' + getVersion()) + '\n' +
       colors.muted('Semantic skill router for Claude Code'),
       {
         padding: { top: 0, bottom: 0, left: 2, right: 2 },
@@ -25,14 +33,6 @@ export function banner() {
       }
     )
   );
-}
-
-async function getVersion() {
-  try {
-    const { createRequire } = await import('module');
-    const require = createRequire(import.meta.url);
-    return require('./package.json').version;
-  } catch { return ''; }
 }
 
 export function spinner(text) {
