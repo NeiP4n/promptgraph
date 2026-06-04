@@ -65,28 +65,31 @@ export function getContext(id) {
 }
 
 function resolveId(db, nameOrId) {
-  // try exact id match first, then name match
   const byId = db.prepare('SELECT id FROM skills WHERE id = ?').get(nameOrId);
   if (byId) return byId.id;
   const byName = db.prepare('SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1').get(nameOrId);
-  return byName ? byName.id : nameOrId;
+  if (byName) return byName.id;
+  return null;
 }
 
 export function getCallers(nameOrId) {
   const db = getDb();
   const id = resolveId(db, nameOrId);
+  if (!id) return { error: `Skill not found: ${nameOrId}` };
   return db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(id).map(r => r.from_skill);
 }
 
 export function getCallees(nameOrId) {
   const db = getDb();
   const id = resolveId(db, nameOrId);
+  if (!id) return { error: `Skill not found: ${nameOrId}` };
   return db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(id).map(r => r.to_skill);
 }
 
 export function getImpact(nameOrId) {
   const db = getDb();
   const id = resolveId(db, nameOrId);
+  if (!id) return { error: `Skill not found: ${nameOrId}` };
   const visited = new Set();
   const queue = [id];
   while (queue.length) {

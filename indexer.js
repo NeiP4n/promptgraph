@@ -43,23 +43,30 @@ async function indexBatch(db, skills) {
   const texts = allChunks.map(c => c.text);
   const embeddings = await embedBatch(texts);
 
-  const txn = db.transaction(() => {
+  // pass 1: upsert all skills + chunks (no edges yet)
+  db.transaction(() => {
     for (const skill of skills) {
       const id = skillId(skill.source, skill.name);
       upsertSkill.run({ id, name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content, hash: skill.hash || null });
       deleteChunks.run(id);
       deleteEdges.run(id);
-      for (const calledName of skill.calls) {
-        const resolved = db.prepare("SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(calledName);
-        upsertEdge.run(id, resolved ? resolved.id : calledName);
-      }
     }
     for (let i = 0; i < allChunks.length; i++) {
       const { id, chunkIndex, text } = allChunks[i];
       upsertChunk.run(id, chunkIndex, text, JSON.stringify(embeddings[i]));
     }
-  });
-  txn();
+  })();
+
+  // pass 2: resolve edges after all skills in batch are committed
+  db.transaction(() => {
+    for (const skill of skills) {
+      const id = skillId(skill.source, skill.name);
+      for (const calledName of skill.calls) {
+        const resolved = db.prepare("SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(calledName);
+        upsertEdge.run(id, resolved ? resolved.id : calledName);
+      }
+    }
+  })();
 }
 
 export async function indexAll() {
@@ -75,12 +82,24 @@ export async function indexAll() {
   const total = allFiles.length;
   info(`Found ${chalk.white.bold(total)} files`);
 
-  // reconcile: remove skills whose files no longer exist
-  const allIds = db.prepare('SELECT id, path FROM skills').all();
+  // reconcile: remove skills whose files no longer exist OR whose name changed
+  const allDbSkills = db.prepare('SELECT id, path, name, source FROM skills').all();
   const existingPaths = new Set(allFiles.map(f => f.file));
   let removed = 0;
-  for (const row of allIds) {
-    if (!existingPaths.has(row.path)) {
+
+  // build expected id map from disk
+  const expectedIds = new Map();
+  for (const { file, source } of allFiles) {
+    try {
+      const parsed = parseSkillFile(file, source);
+      expectedIds.set(file, skillId(source, parsed.name));
+    } catch {}
+  }
+
+  for (const row of allDbSkills) {
+    const pathGone = !existingPaths.has(row.path);
+    const idChanged = expectedIds.has(row.path) && expectedIds.get(row.path) !== row.id;
+    if (pathGone || idChanged) {
       db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
       db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(row.id);
       db.prepare('DELETE FROM edges WHERE from_skill = ? OR to_skill = ?').run(row.id, row.id);
@@ -88,7 +107,7 @@ export async function indexAll() {
       removed++;
     }
   }
-  if (removed > 0) info(`Removed ${chalk.yellow(removed)} deleted skills`);
+  if (removed > 0) info(`Removed ${chalk.yellow(removed)} stale/deleted skills`);
 
   let count = 0;
   let errors = 0;
