@@ -25,53 +25,68 @@ export function banner() {
     boxen(
       colors.primary.bold('PromptGraph') + '  ' + colors.muted('v' + getVersion()) + '\n' +
       colors.muted('Semantic skill router for Claude Code'),
-      {
-        padding: { top: 0, bottom: 0, left: 2, right: 2 },
-        borderStyle: 'round',
-        borderColor: '#7C3AED',
-        dimBorder: true,
-      }
+      { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
     )
   );
 }
 
 export function spinner(text) {
-  return ora({
-    text: colors.muted(text),
-    spinner: 'dots',
-    color: 'magenta',
-  });
+  return ora({ text: colors.muted(text), spinner: 'dots', color: 'magenta' });
 }
 
 export function success(msg) {
-  console.log(colors.success('✓') + ' ' + msg);
+  console.log('\n' + colors.success('✓') + '  ' + msg);
 }
 
 export function error(msg) {
-  console.log(colors.error('✗') + ' ' + msg);
+  console.log(colors.error('✗') + '  ' + msg);
 }
 
 export function info(msg) {
-  console.log(colors.muted('·') + ' ' + msg);
+  console.log(colors.muted('  ' + msg));
 }
 
 export function section(title) {
   console.log('\n' + colors.primary.bold(title));
 }
 
-export function progress(current, total, extra = '') {
+let _progressActive = false;
+
+export function progress(current, total, { skipped = 0, eta = '?', errors = 0 } = {}) {
   const pct = Math.round(current / total * 100);
   const bar = buildBar(pct);
-  process.stdout.write(
-    `\r  ${bar} ${colors.white.bold(pct + '%')} ${colors.muted(current + '/' + total)} ${colors.muted(extra)}  `
-  );
+
+  const stats = [
+    colors.white.bold(String(pct).padStart(3) + '%'),
+    colors.muted(current + '/' + total),
+    skipped > 0 ? colors.muted('skip ' + skipped) : '',
+    errors > 0 ? colors.error('err ' + errors) : '',
+    eta !== '?' ? colors.muted('eta ' + formatTime(eta)) : '',
+  ].filter(Boolean).join('  ');
+
+  process.stdout.write('\r  ' + bar + '  ' + stats + '   ');
+  _progressActive = true;
+}
+
+export function progressDone() {
+  if (_progressActive) {
+    process.stdout.write('\n');
+    _progressActive = false;
+  }
 }
 
 function buildBar(pct) {
-  const width = 20;
+  const width = 24;
   const filled = Math.round(pct / 100 * width);
   const empty = width - filled;
   return colors.primary('█'.repeat(filled)) + colors.muted('░'.repeat(empty));
+}
+
+function formatTime(seconds) {
+  if (seconds < 60) return seconds + 's';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m + 'm ' + s + 's';
 }
 
 export function table(rows) {
@@ -79,7 +94,7 @@ export function table(rows) {
   const cols = Object.keys(rows[0]);
   const widths = cols.map(c => Math.max(c.length, ...rows.map(r => String(r[c] ?? '').length)));
   const header = cols.map((c, i) => colors.muted(c.toUpperCase().padEnd(widths[i]))).join('  ');
-  const divider = colors.muted(widths.map(w => '─'.repeat(w)).join('  '));
+  const divider = colors.muted(widths.map(w => '─'.repeat(w)).join('──'));
   console.log('\n' + header);
   console.log(divider);
   for (const row of rows) {

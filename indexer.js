@@ -7,7 +7,7 @@ import { getDb, skillId } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
 import { buildAnnIndex } from './ann.js';
-import { progress, success, info, spinner } from './cli.js';
+import { progress, progressDone, success, info, spinner } from './cli.js';
 import chalk from 'chalk';
 
 function fileHash(filePath) {
@@ -110,7 +110,7 @@ export async function indexAll() {
         count++;
         if (count % 100 === 0) {
           const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
-          progress(count, total, `skipped: ${skipped}  eta: ${eta}s`);
+          progress(count, total, { skipped, eta, errors });
         }
         continue;
       }
@@ -122,7 +122,7 @@ export async function indexAll() {
         count += batch.length;
         batch = [];
         const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
-        progress(count, total, `skipped: ${skipped}  eta: ${eta}s`);
+        progress(count, total, { skipped, eta, errors });
       }
     } catch {
       errors++;
@@ -137,8 +137,8 @@ export async function indexAll() {
   // rebuild all edges for unchanged skills too (fixes edge loss bug)
   rebuildEdgesForUnchanged(db);
 
-  progress(total, total, 'done');
-  console.log();
+  progress(total, total, { skipped, errors });
+  progressDone();
   const spin = spinner('Building ANN index...');
   spin.start();
   await buildAnnIndex();
