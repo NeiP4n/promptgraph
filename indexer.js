@@ -1,6 +1,7 @@
 import { globSync } from 'glob';
 import { createHash } from 'crypto';
 import fs from 'fs';
+import path from 'path';
 import { parseSkillFile, isSkillFile } from './parser.js';
 import { embedBatch, BATCH_SIZE } from './embedder.js';
 import { getDb, skillId } from './db.js';

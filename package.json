@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "1.5.23",
+  "version": "1.5.25",
   "main": "index.js",
   "type": "module",
   "bin": {
@@ -47,5 +47,8 @@
   },
   "devDependencies": {
     "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "tar": "^7.5.16"
   }
 }
