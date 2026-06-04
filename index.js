@@ -104,31 +104,47 @@ if (args[0] === 'marketplace') {
   }
 
   const totalPages = Math.ceil(all.length / PER_PAGE);
-  const slice = all.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const startIdx = (page - 1) * PER_PAGE;
+  const slice = all.slice(startIdx, startIdx + PER_PAGE);
+  const purple = chalk.hex('#7C3AED');
 
-  console.log(
-    boxen(
-      chalk.hex('#7C3AED').bold('Marketplace') + '  ' +
-      chalk.gray(`page ${page}/${totalPages}  ·  ${all.length} skills`),
-      { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
-    )
-  );
+  const wrap = (text, width, indent) => {
+    const words = (text || '').split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const w of words) {
+      if ((line + ' ' + w).trim().length > width) { lines.push(line.trim()); line = w; }
+      else line += ' ' + w;
+    }
+    if (line.trim()) lines.push(line.trim());
+    return lines.map(l => indent + chalk.gray(l)).join('\n');
+  };
+
   console.log();
-  for (const s of slice) {
-    const stars = s.stars ? chalk.yellow('★ ' + s.stars) : chalk.gray('★ 0');
-    console.log('  ' + chalk.white.bold(s.id) + '  ' + stars);
-    console.log('  ' + chalk.gray((s.description || '').slice(0, 80)));
-    if (s.tags?.length) console.log('  ' + chalk.hex('#7C3AED')(s.tags.map(t => '#' + t).join(' ')));
-    console.log();
-  }
+  console.log('  ' + purple.bold('PromptGraph Marketplace'));
+  console.log('  ' + chalk.gray(`${all.length} skill${all.length === 1 ? '' : 's'}  ·  page ${page}/${totalPages}`));
+  console.log('  ' + chalk.gray('─'.repeat(50)));
+  console.log();
 
+  slice.forEach((s, i) => {
+    const num = chalk.gray(String(startIdx + i + 1).padStart(2) + '.');
+    const stars = (s.stars > 0 ? chalk.yellow('★ ' + s.stars) : chalk.gray('★ 0'));
+    console.log('  ' + num + ' ' + chalk.white.bold(s.id) + '   ' + stars);
+    console.log(wrap(s.description, 64, '      '));
+    if (s.tags?.length) console.log('      ' + purple(s.tags.map(t => '#' + t).join(' ')));
+    console.log('      ' + chalk.gray('install: ') + chalk.cyan(`/pg-fetch ${s.id}`));
+    console.log();
+  });
+
+  console.log('  ' + chalk.gray('─'.repeat(50)));
   if (totalPages > 1) {
     const nav = [];
-    if (page > 1) nav.push(`${bin} marketplace ${page - 1}`);
-    if (page < totalPages) nav.push(`${bin} marketplace ${page + 1}`);
-    console.log(chalk.gray('  ' + nav.join('   ·   ')));
+    if (page > 1) nav.push(chalk.cyan(`${bin} marketplace ${page - 1}`) + chalk.gray(' ‹ prev'));
+    if (page < totalPages) nav.push(chalk.gray('next › ') + chalk.cyan(`${bin} marketplace ${page + 1}`));
+    console.log('  ' + nav.join('    '));
   }
-  console.log(chalk.gray('\n  To publish your own skill, run ') + chalk.hex('#7C3AED')('/pg-publish <file.md>') + chalk.gray(' in your AI assistant.\n'));
+  console.log('  ' + chalk.gray('publish a skill:  ') + chalk.cyan('/pg-publish <file.md>') + chalk.gray('  (via your AI assistant)'));
+  console.log();
   process.exit(0);
 }
 
