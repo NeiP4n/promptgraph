@@ -90,6 +90,7 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
   spin.start();
   const bundles = await browseBundles(1000);
   spin.stop();
+  console.clear();
 
   if (bundles?.error) { error(bundles.error); process.exit(1); }
 
@@ -137,6 +138,7 @@ if (args[0] === 'marketplace') {
   spin.start();
   const all = await browseMarketplace(1000);
   spin.stop();
+  console.clear();
 
   if (all?.error) {
     error(all.error);
