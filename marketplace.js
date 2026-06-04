@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import https from 'https';
 import { spawnSync } from 'child_process';
 import { getDb } from './db.js';
 import { validateSkill } from './validator.js';
@@ -8,11 +9,39 @@ import { validateSkill } from './validator.js';
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills-store', 'marketplace');
 
+// Robust fetch: try undici fetch, fall back to node:https (works where undici fails on Windows)
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'promptgraph-mcp' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return httpGet(res.headers.location).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', c => data += c);
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+}
+
+async function fetchText(url) {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'promptgraph-mcp' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } catch {
+    return await httpGet(url);
+  }
+}
+
 export async function browseMarketplace(topK = 20) {
   try {
-    const res = await fetch(REGISTRY_URL);
-    if (!res.ok) return { error: `Registry returned ${res.status}. Check https://github.com/NeiP4n/promptgraph-registry` };
-    const registry = await res.json();
+    const text = await fetchText(REGISTRY_URL);
+    const registry = JSON.parse(text);
     if (!Array.isArray(registry.skills)) return { error: 'Invalid registry format' };
     return registry.skills
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
@@ -24,9 +53,8 @@ export async function browseMarketplace(topK = 20) {
 
 export async function installSkill(skillId) {
   try {
-    const res = await fetch(REGISTRY_URL);
-    if (!res.ok) return { error: `Registry returned ${res.status}` };
-    const registry = await res.json();
+    const text = await fetchText(REGISTRY_URL);
+    const registry = JSON.parse(text);
     const skill = registry.skills?.find(s => s.id === skillId);
     if (!skill) return { error: `Skill "${skillId}" not found in registry` };
     if (!skill.raw_url) return { error: `Skill "${skillId}" has no download URL` };
@@ -34,10 +62,8 @@ export async function installSkill(skillId) {
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
     const dest = path.join(SKILLS_DIR, `${skillId}.md`);
 
-    const content = await fetch(skill.raw_url);
-    if (!content.ok) return { error: `Failed to download skill: ${content.status}` };
-    const text = await content.text();
-    fs.writeFileSync(dest, text);
+    const content = await fetchText(skill.raw_url);
+    fs.writeFileSync(dest, content);
 
     return { success: true, path: dest, name: skill.name };
   } catch (e) {
