@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "index.js",
   "type": "module",
   "bin": {
@@ -37,6 +37,7 @@
     "chokidar": "^5.0.0",
     "fastembed": "^2.1.0",
     "glob": "^13.0.6",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "vectra": "^0.15.0"
   }
 }

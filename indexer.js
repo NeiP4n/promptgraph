@@ -4,6 +4,7 @@ import { embed } from './embedder.js';
 import { getDb, skillId } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
+import { buildAnnIndex } from './ann.js';
 
 async function indexSkill(db, skill) {
   const id = skillId(skill.source, skill.name);
@@ -53,6 +54,8 @@ export async function indexAll() {
       }
     }
   }
+  process.stdout.write('\r  Building ANN index...');
+  await buildAnnIndex();
   console.log(`\n  Done. ${count} skills indexed.`);
 }
 

@@ -1,34 +1,52 @@
 import { embed, cosineSimilarity } from './embedder.js';
 import { getDb } from './db.js';
+import { annSearch } from './ann.js';
 
 export async function search(query, topK = 5) {
   const db = getDb();
   const queryVec = await embed(query);
 
-  const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
+  // Try ANN index first (fast, O(log N))
+  const annResults = await annSearch(queryVec, topK * 4);
 
+  if (annResults && annResults.length > 0) {
+    const bestBySkill = new Map();
+    for (const r of annResults) {
+      const prev = bestBySkill.get(r.skill_id);
+      if (!prev || r.score > prev) bestBySkill.set(r.skill_id, r.score);
+    }
+    return [...bestBySkill.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topK)
+      .map(([id, score]) => {
+        const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
+        return skill ? { ...skill, score } : null;
+      })
+      .filter(Boolean);
+  }
+
+  // Fallback: brute force (used before first reindex)
+  const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
   const bestBySkill = new Map();
   for (const chunk of chunks) {
     const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
     const prev = bestBySkill.get(chunk.skill_id);
     if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
   }
-
-  const topIds = [...bestBySkill.entries()]
+  return [...bestBySkill.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, topK)
-    .map(([id]) => id);
-
-  return topIds.map(id => {
-    const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
-    return { ...skill, score: bestBySkill.get(id) };
-  });
+    .map(([id, score]) => {
+      const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
+      return skill ? { ...skill, score } : null;
+    })
+    .filter(Boolean);
 }
 
 export function getContext(id) {
   const db = getDb();
   const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id)
-    || db.prepare("SELECT * FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(id);
+    || db.prepare('SELECT * FROM skills WHERE name = ? ORDER BY id LIMIT 1').get(id);
   if (!skill) return null;
   const callees = db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(skill.id).map(r => r.to_skill);
   const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(skill.id).map(r => r.from_skill);
