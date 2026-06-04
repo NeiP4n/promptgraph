@@ -176,11 +176,11 @@ if (args[0] === 'marketplace') {
   slice.forEach((s, i) => {
     const num = chalk.gray(String(startIdx + i + 1).padStart(2) + '.');
     const stars = (s.stars > 0 ? chalk.yellow('★ ' + s.stars) : chalk.gray('★ 0'));
-    console.log('  ' + num + ' ' + chalk.white.bold(s.id) + '   ' + stars);
+    const code = s.code ? chalk.bgHex('#2A2440').hex('#C4B5FD')(` ${s.code} `) : '';
+    console.log('  ' + num + ' ' + chalk.white.bold(s.id) + '   ' + stars + '   ' + code);
     console.log(wrap(s.description, 64, '      '));
     if (s.tags?.length) console.log('      ' + purple(s.tags.map(t => '#' + t).join(' ')));
-    console.log('      ' + chalk.gray('install:  ') + chalk.cyan(`pg_marketplace_install("${s.id}")`));
-    console.log('      ' + chalk.gray('use:      ') + chalk.cyan(`pg_search("${s.id}")`) + chalk.gray(' → read the file'));
+    console.log('      ' + chalk.gray('install:  tell your AI  ') + chalk.cyan(`install ${s.code || s.id}`));
     console.log();
   });
 
@@ -192,12 +192,10 @@ if (args[0] === 'marketplace') {
     console.log('  ' + nav.join('    '));
     console.log();
   }
-  console.log('  ' + chalk.gray('These run through your AI assistant via the PromptGraph MCP server:'));
-  console.log('    ' + chalk.cyan('pg_marketplace_install') + chalk.gray('  install a skill   ') + chalk.gray('(or /pg-fetch <id>)'));
-  console.log('    ' + chalk.cyan('pg_marketplace_publish') + chalk.gray('  share your own   ') + chalk.gray('(or /pg-publish <file>)'));
-  console.log('    ' + chalk.cyan('pg_search') + chalk.gray('               find & apply any installed skill'));
+  console.log('  ' + chalk.gray('To install: tell your AI assistant ') + chalk.cyan('install <code or name>'));
+  console.log('  ' + chalk.gray('e.g. ') + chalk.cyan(`install ${slice[0].code || slice[0].id}`) + chalk.gray('  or  ') + chalk.cyan(`install ${slice[0].id}`));
   console.log();
-  console.log('  ' + chalk.gray('Browse curated sets:  ') + chalk.cyan(`${bin} marketplace bundles`));
+  console.log('  ' + chalk.gray('Curated sets:  ') + chalk.cyan(`${bin} marketplace bundles`) + chalk.gray('   ·   Publish:  ') + chalk.cyan('/pg-publish <file>'));
   console.log();
   process.exit(0);
 }

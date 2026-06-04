@@ -51,13 +51,25 @@ export async function browseMarketplace(topK = 20) {
   }
 }
 
-export async function installSkill(skillId) {
+export async function installSkill(query) {
   try {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
-    const skill = registry.skills?.find(s => s.id === skillId);
-    if (!skill) return { error: `Skill "${skillId}" not found in registry` };
-    if (!skill.raw_url) return { error: `Skill "${skillId}" has no download URL` };
+    const q = String(query).trim().toLowerCase();
+    // match by code, id, or name (case-insensitive)
+    const skill = registry.skills?.find(s =>
+      s.code?.toLowerCase() === q ||
+      s.id?.toLowerCase() === q ||
+      s.name?.toLowerCase() === q
+    );
+    if (!skill) {
+      // maybe it's a bundle code/id — hint the user
+      const bundle = (registry.bundles || []).find(b => b.code?.toLowerCase() === q || b.id?.toLowerCase() === q);
+      if (bundle) return { error: `"${query}" is a bundle. Use pg_bundle_install("${bundle.id}") instead.` };
+      return { error: `No skill matching "${query}" (try a code like pg-xxxxxx, an id, or a name)` };
+    }
+    if (!skill.raw_url) return { error: `Skill "${skill.id}" has no download URL` };
+    const skillId = skill.id;
 
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
     const dest = path.join(SKILLS_DIR, `${skillId}.md`);
@@ -88,8 +100,11 @@ export async function installBundle(bundleId) {
   try {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
-    const bundle = (registry.bundles || []).find(b => b.id === bundleId);
-    if (!bundle) return { error: `Bundle "${bundleId}" not found in registry` };
+    const q = String(bundleId).trim().toLowerCase();
+    const bundle = (registry.bundles || []).find(b =>
+      b.code?.toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
+    );
+    if (!bundle) return { error: `No bundle matching "${bundleId}"` };
 
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
     const installed = [];
