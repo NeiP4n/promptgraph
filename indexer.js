@@ -1,37 +1,36 @@
 import { globSync } from 'glob';
 import { parseSkillFile } from './parser.js';
 import { embed } from './embedder.js';
-import { getDb } from './db.js';
+import { getDb, skillId } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
 
 async function indexSkill(db, skill) {
+  const id = skillId(skill.source, skill.name);
+
   db.prepare(`
-    INSERT INTO skills (name, description, path, source, content)
-    VALUES (@name, @description, @path, @source, @content)
-    ON CONFLICT(name) DO UPDATE SET
+    INSERT INTO skills (id, name, description, path, source, content)
+    VALUES (@id, @name, @description, @path, @source, @content)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
       description = excluded.description,
       path = excluded.path,
-      source = excluded.source,
       content = excluded.content
-  `).run({ name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content });
+  `).run({ id, name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content });
 
-  db.prepare('DELETE FROM chunks WHERE skill_name = ?').run(skill.name);
+  db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(id);
 
   const chunks = chunkText(skill.name + ' ' + skill.description + '\n' + skill.content);
-  const upsertChunk = db.prepare(`
-    INSERT OR REPLACE INTO chunks (skill_name, chunk_index, text, embedding)
-    VALUES (?, ?, ?, ?)
-  `);
+  const upsertChunk = db.prepare(`INSERT OR REPLACE INTO chunks (skill_id, chunk_index, text, embedding) VALUES (?, ?, ?, ?)`);
   for (let i = 0; i < chunks.length; i++) {
     const vec = await embed(chunks[i]);
-    upsertChunk.run(skill.name, i, chunks[i], JSON.stringify(vec));
+    upsertChunk.run(id, i, chunks[i], JSON.stringify(vec));
   }
 
-  db.prepare('DELETE FROM edges WHERE from_skill = ?').run(skill.name);
+  db.prepare('DELETE FROM edges WHERE from_skill = ?').run(id);
   const upsertEdge = db.prepare('INSERT OR IGNORE INTO edges (from_skill, to_skill) VALUES (?, ?)');
   for (const called of skill.calls) {
-    upsertEdge.run(skill.name, called);
+    upsertEdge.run(id, called);
   }
 }
 

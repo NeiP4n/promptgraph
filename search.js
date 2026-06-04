@@ -5,50 +5,50 @@ export async function search(query, topK = 5) {
   const db = getDb();
   const queryVec = await embed(query);
 
-  // RAG: search over chunks, deduplicate by skill
-  const chunks = db.prepare('SELECT skill_name, embedding FROM chunks').all();
+  const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
 
   const bestBySkill = new Map();
   for (const chunk of chunks) {
     const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
-    const prev = bestBySkill.get(chunk.skill_name);
-    if (!prev || score > prev) bestBySkill.set(chunk.skill_name, score);
+    const prev = bestBySkill.get(chunk.skill_id);
+    if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
   }
 
-  const skillNames = [...bestBySkill.entries()]
+  const topIds = [...bestBySkill.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, topK)
-    .map(([name]) => name);
+    .map(([id]) => id);
 
-  return skillNames.map(name => {
-    const skill = db.prepare('SELECT name, description, path, source FROM skills WHERE name = ?').get(name);
-    return { ...skill, score: bestBySkill.get(name) };
+  return topIds.map(id => {
+    const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
+    return { ...skill, score: bestBySkill.get(id) };
   });
 }
 
-export function getContext(name) {
+export function getContext(id) {
   const db = getDb();
-  const skill = db.prepare('SELECT * FROM skills WHERE name = ?').get(name);
+  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id)
+    || db.prepare("SELECT * FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(id);
   if (!skill) return null;
-  const callees = db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(name).map(r => r.to_skill);
-  const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(name).map(r => r.from_skill);
+  const callees = db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(skill.id).map(r => r.to_skill);
+  const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(skill.id).map(r => r.from_skill);
   return { ...skill, callees, callers };
 }
 
-export function getCallers(name) {
+export function getCallers(id) {
   const db = getDb();
-  return db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(name).map(r => r.from_skill);
+  return db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(id).map(r => r.from_skill);
 }
 
-export function getCallees(name) {
+export function getCallees(id) {
   const db = getDb();
-  return db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(name).map(r => r.to_skill);
+  return db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(id).map(r => r.to_skill);
 }
 
-export function getImpact(name) {
+export function getImpact(id) {
   const db = getDb();
   const visited = new Set();
-  const queue = [name];
+  const queue = [id];
   while (queue.length) {
     const cur = queue.shift();
     if (visited.has(cur)) continue;
@@ -56,11 +56,11 @@ export function getImpact(name) {
     const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(cur).map(r => r.from_skill);
     queue.push(...callers);
   }
-  visited.delete(name);
+  visited.delete(id);
   return [...visited];
 }
 
 export function listAll() {
   const db = getDb();
-  return db.prepare('SELECT name, description, source FROM skills ORDER BY name').all();
+  return db.prepare('SELECT id, name, description, source FROM skills ORDER BY source, name').all();
 }

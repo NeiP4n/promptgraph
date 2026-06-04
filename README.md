@@ -128,7 +128,8 @@ promptgraph-mcp reindex   # Re-index all skills
 |---|---|---|
 | Skills in context | All 40+ | 1 (router) |
 | Tokens per session | ~20,000–50,000 | ~150 + 1 skill |
-| Scales to | ~50 skills | 5,000+ skills |
+
+> **Note:** Search is currently linear O(N) over all chunks. Works well up to ~1,000 skills. ANN index (HNSW/LanceDB) planned for larger collections.
 
 ## File Structure
 

@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { globSync } from 'glob';
 import { indexAll } from './indexer.js';
 import { loadConfig, saveConfig } from './config.js';
 
@@ -27,10 +28,10 @@ export async function importFromGitHub(repoUrl) {
     execSync(`git clone --depth=1 ${url} "${dest}"`, { stdio: 'inherit' });
   }
 
-  const mdCount = execSync(`find "${dest}" -name "*.md" | wc -l`).toString().trim();
-  console.log(`Found ${mdCount} .md files`);
+  const mdFiles = globSync(`${dest}/**/*.md`);
+  console.log(`Found ${mdFiles.length} .md files`);
 
-  if (parseInt(mdCount) < 2) {
+  if (mdFiles.length < 2) {
     console.warn('Warning: repo has fewer than 2 .md files — may be empty');
   }
 
@@ -44,5 +45,5 @@ export async function importFromGitHub(repoUrl) {
 
   console.log('\nReindexing...');
   await indexAll();
-  console.log(`Done! Imported from ${repoName}`);
+  console.log(`Done! Imported ${mdFiles.length} files from ${repoName}`);
 }

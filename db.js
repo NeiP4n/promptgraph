@@ -12,8 +12,8 @@ export function getDb() {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS skills (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
       description TEXT,
       path TEXT NOT NULL,
       source TEXT NOT NULL,
@@ -22,11 +22,11 @@ export function getDb() {
 
     CREATE TABLE IF NOT EXISTS chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      skill_name TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
       chunk_index INTEGER NOT NULL,
       text TEXT NOT NULL,
       embedding TEXT NOT NULL,
-      UNIQUE(skill_name, chunk_index)
+      UNIQUE(skill_id, chunk_index)
     );
 
     CREATE TABLE IF NOT EXISTS edges (
@@ -37,4 +37,8 @@ export function getDb() {
   `);
 
   return db;
+}
+
+export function skillId(source, name) {
+  return `${source}::${name}`;
 }
