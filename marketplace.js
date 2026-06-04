@@ -71,6 +71,48 @@ export async function installSkill(skillId) {
   }
 }
 
+export async function browseBundles(topK = 20) {
+  try {
+    const text = await fetchText(REGISTRY_URL);
+    const registry = JSON.parse(text);
+    const bundles = registry.bundles || [];
+    return bundles
+      .sort((a, b) => (b.stars || 0) - (a.stars || 0))
+      .slice(0, topK);
+  } catch (e) {
+    return { error: `Registry unavailable: ${e.message}` };
+  }
+}
+
+export async function installBundle(bundleId) {
+  try {
+    const text = await fetchText(REGISTRY_URL);
+    const registry = JSON.parse(text);
+    const bundle = (registry.bundles || []).find(b => b.id === bundleId);
+    if (!bundle) return { error: `Bundle "${bundleId}" not found in registry` };
+
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    const installed = [];
+    const failed = [];
+
+    for (const skillId of bundle.skills || []) {
+      const skill = registry.skills?.find(s => s.id === skillId);
+      if (!skill?.raw_url) { failed.push(skillId); continue; }
+      try {
+        const content = await fetchText(skill.raw_url);
+        fs.writeFileSync(path.join(SKILLS_DIR, `${skillId}.md`), content);
+        installed.push(skillId);
+      } catch {
+        failed.push(skillId);
+      }
+    }
+
+    return { success: true, bundle: bundle.name, installed, failed, dir: SKILLS_DIR };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 export async function publishSkill(filePath) {
   if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
 

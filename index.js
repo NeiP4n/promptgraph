@@ -8,7 +8,7 @@ import { startWatcher } from './watcher.js';
 import { promptConfig } from './config.js';
 import { importFromGitHub } from './github-import.js';
 import { detectPlatforms, PLATFORMS } from './platform.js';
-import { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail } from './marketplace.js';
+import { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail, browseBundles, installBundle } from './marketplace.js';
 
 import { colors, banner, success, error, info, section, table } from './cli.js';
 import boxen from 'boxen';
@@ -83,6 +83,51 @@ if (args[0] === 'doctor') {
   process.exit(0);
 }
 
+if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')) {
+  const { browseBundles } = await import('./marketplace.js');
+  const purple = chalk.hex('#7C3AED');
+  const spin = (await import('./cli.js')).spinner('Fetching bundles...');
+  spin.start();
+  const bundles = await browseBundles(1000);
+  spin.stop();
+
+  if (bundles?.error) { error(bundles.error); process.exit(1); }
+
+  console.log();
+  console.log('  ' + purple.bold('PromptGraph Bundles') + chalk.gray('   curated skill sets'));
+  console.log('  ' + chalk.gray(`${bundles.length} bundle${bundles.length === 1 ? '' : 's'}`));
+  console.log('  ' + chalk.gray('─'.repeat(54)));
+  console.log();
+
+  if (!bundles.length) {
+    info('No bundles yet.');
+    console.log(chalk.gray('  github.com/NeiP4n/promptgraph-registry\n'));
+    process.exit(0);
+  }
+
+  const wrapB = (t, w, ind) => {
+    const words = (t || '').split(/\s+/); const lines = []; let line = '';
+    for (const x of words) { if ((line + ' ' + x).trim().length > w) { lines.push(line.trim()); line = x; } else line += ' ' + x; }
+    if (line.trim()) lines.push(line.trim());
+    return lines.map(l => ind + chalk.gray(l)).join('\n');
+  };
+
+  bundles.forEach((b, i) => {
+    const stars = b.stars > 0 ? chalk.yellow('★ ' + b.stars) : chalk.gray('★ 0');
+    console.log('  ' + chalk.gray((i + 1) + '.') + ' ' + chalk.white.bold(b.id) + '   ' + stars + chalk.gray('   ' + (b.skills?.length || 0) + ' skills'));
+    console.log(wrapB(b.description, 64, '     '));
+    console.log('     ' + chalk.gray('includes: ') + chalk.gray((b.skills || []).join(', ')));
+    if (b.tags?.length) console.log('     ' + purple(b.tags.map(t => '#' + t).join(' ')));
+    console.log('     ' + chalk.gray('install:  ') + chalk.cyan(`pg_bundle_install("${b.id}")`));
+    console.log();
+  });
+
+  console.log('  ' + chalk.gray('─'.repeat(54)));
+  console.log('  ' + chalk.gray('Installs all skills in the set. Run ') + chalk.cyan(`${bin} marketplace`) + chalk.gray(' for single skills.'));
+  console.log();
+  process.exit(0);
+}
+
 if (args[0] === 'marketplace') {
   const { browseMarketplace } = await import('./marketplace.js');
   const PER_PAGE = 10;
@@ -149,6 +194,8 @@ if (args[0] === 'marketplace') {
   console.log('    ' + chalk.cyan('pg_marketplace_install') + chalk.gray('  install a skill   ') + chalk.gray('(or /pg-fetch <id>)'));
   console.log('    ' + chalk.cyan('pg_marketplace_publish') + chalk.gray('  share your own   ') + chalk.gray('(or /pg-publish <file>)'));
   console.log('    ' + chalk.cyan('pg_search') + chalk.gray('               find & apply any installed skill'));
+  console.log();
+  console.log('  ' + chalk.gray('Browse curated sets:  ') + chalk.cyan(`${bin} marketplace bundles`));
   console.log();
   process.exit(0);
 }
@@ -315,6 +362,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['file_path'],
       },
     },
+    {
+      name: 'pg_bundle_browse',
+      description: 'Browse curated bundles (sets of related skills) from the marketplace.',
+      inputSchema: { type: 'object', properties: { top_k: { type: 'number' } } },
+    },
+    {
+      name: 'pg_bundle_install',
+      description: 'Install all skills in a bundle by bundle id.',
+      inputSchema: {
+        type: 'object',
+        properties: { bundle_id: { type: 'string' } },
+        required: ['bundle_id'],
+      },
+    },
   ],
 }));
 
@@ -340,6 +401,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pg_marketplace_browse': result = await browseMarketplace(args.top_k || 20); break;
       case 'pg_marketplace_install': result = await installSkill(args.skill_id); break;
       case 'pg_marketplace_publish': result = await publishSkill(args.file_path); break;
+      case 'pg_bundle_browse': result = await browseBundles(args.top_k || 20); break;
+      case 'pg_bundle_install': result = await installBundle(args.bundle_id); break;
       default: throw new Error(`Unknown tool: ${name}`);
     }
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
