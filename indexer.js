@@ -7,6 +7,8 @@ import { getDb, skillId } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
 import { buildAnnIndex } from './ann.js';
+import { progress, success, info, spinner } from './cli.js';
+import chalk from 'chalk';
 
 function fileHash(filePath) {
   const content = fs.readFileSync(filePath);
@@ -74,7 +76,7 @@ export async function indexAll() {
     files.forEach(f => allFiles.push({ file: f, source }));
     total += files.length;
   }
-  console.log(`  Total files: ${total}`);
+  info(`Found ${chalk.white.bold(total)} files`);
 
   let count = 0;
   let errors = 0;
@@ -93,9 +95,9 @@ export async function indexAll() {
       if (existing?.hash === hash) {
         skipped++;
         count++;
-        if (count % 100 === 0) {
-          const pct = Math.round(count / total * 100);
-          process.stdout.write(`\r  [${pct}%] ${count}/${total} | skipped: ${skipped} | errors: ${errors}  `);
+        if (count % 50 === 0) {
+          const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
+          progress(count, total, `skipped: ${skipped}  eta: ${eta}s`);
         }
         continue;
       }
@@ -120,9 +122,15 @@ export async function indexAll() {
     count += batch.length;
   }
 
-  process.stdout.write('\r  Building ANN index...');
+  progress(total, total, 'done');
+  console.log();
+  const spin = spinner('Building ANN index...');
+  spin.start();
   await buildAnnIndex();
-  console.log(`\n  Done. ${count} skills indexed.`);
+  spin.stop();
+  success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${errors} errors, ${skipped} skipped)`)}`);
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  info(chalk.gray(`Time: ${elapsed}s`));
 }
 
 export async function indexFile(filePath, source) {

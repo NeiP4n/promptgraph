@@ -10,25 +10,34 @@ import { importFromGitHub } from './github-import.js';
 import { detectPlatforms, PLATFORMS } from './platform.js';
 import { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail } from './marketplace.js';
 
+import { colors, banner, success, error, info, section, table } from './cli.js';
+import boxen from 'boxen';
+import chalk from 'chalk';
+
 const args = process.argv.slice(2);
 
-if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
-  console.log(`
-PromptGraph — semantic skill router for Claude Code
-
-Usage:
-  promptgraph-mcp init                  First-time setup + index all skills
-  promptgraph-mcp reindex               Re-index all skills
-  promptgraph-mcp import <owner/repo>   Import skills from GitHub repo
-  promptgraph-mcp setup <platform>      Register MCP in platform config
-  promptgraph-mcp                       Start MCP server (used by Claude)
-  promptgraph-mcp help                  Show this help
-
-Platforms: claude-code, claude-desktop, cline, codex, cursor, windsurf
-
-GitHub: https://github.com/NeiP4n/promptgraph
-npm:    https://npmjs.com/package/promptgraph-mcp
-  `);
+if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h' || !args[0]) {
+  console.log(
+    boxen(
+      chalk.hex('#7C3AED').bold('PromptGraph') + '\n' +
+      chalk.gray('Semantic skill router for Claude Code'),
+      { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
+    )
+  );
+  console.log(chalk.gray('\nUsage:\n'));
+  const cmds = [
+    ['init',                'First-time setup + index all skills'],
+    ['reindex',             'Re-index all skills'],
+    ['import <owner/repo>', 'Import skills from GitHub'],
+    ['setup <platform>',    'Register MCP in platform config'],
+    ['help',                'Show this help'],
+  ];
+  for (const [cmd, desc] of cmds) {
+    console.log('  ' + chalk.hex('#7C3AED')('promptgraph-mcp ' + cmd.padEnd(22)) + chalk.gray(desc));
+  }
+  console.log(chalk.gray('\nPlatforms: claude-code, claude-desktop, cline, codex, cursor, windsurf'));
+  console.log(chalk.gray('\n  github.com/NeiP4n/promptgraph  ·  npmjs.com/package/promptgraph-mcp\n'));
+  if (!args[0]) process.exit(0);
   process.exit(0);
 }
 
@@ -40,37 +49,34 @@ if (args[0] === 'import') {
 if (args[0] === 'setup') {
   const platformId = args[1];
   if (!platformId) {
-    const detected = detectPlatforms();
-    console.log('Detected platforms:');
-    detected.forEach(p => console.log(`  - ${p.id}: ${p.name}`));
-    console.log('\nUsage: promptgraph-mcp setup <platform-id>');
+    section('Detected platforms');
+    detectPlatforms().forEach(p => info(`${chalk.white(p.id.padEnd(16))} ${chalk.gray(p.name)}`));
+    console.log(chalk.gray('\n  Usage: promptgraph-mcp setup <platform-id>\n'));
   } else {
     const platform = PLATFORMS[platformId];
-    if (!platform) { console.error(`Unknown platform: ${platformId}`); process.exit(1); }
+    if (!platform) { error(`Unknown platform: ${platformId}`); process.exit(1); }
     platform.addMcp(platform);
-    console.log(`✓ Registered promptgraph MCP in ${platform.name} (${platform.configPath})`);
+    success(`Registered in ${chalk.white(platform.name)}`);
+    info(chalk.gray(platform.configPath));
   }
   process.exit(0);
 }
 
 if (args[0] === 'init') {
   const config = await promptConfig();
-  console.log('\nIndexing skills...');
   await indexAll();
-  console.log('\nDone! Add to Claude Code settings.json:');
-  console.log(JSON.stringify({
-    mcpServers: {
-      promptgraph: {
-        command: 'npx',
-        args: ['promptgraph-mcp'],
-      }
-    }
-  }, null, 2));
+  console.log();
+  console.log(
+    boxen(
+      chalk.white.bold('Add to Claude Code settings.json:') + '\n\n' +
+      chalk.gray(JSON.stringify({ mcpServers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } }, null, 2)),
+      { padding: 1, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
+    )
+  );
   process.exit(0);
 }
 
 if (args[0] === 'reindex') {
-  console.log('[PromptGraph] Reindexing...');
   await indexAll();
   process.exit(0);
 }
