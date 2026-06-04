@@ -48,7 +48,16 @@ function showHelp() {
   console.log(chalk.gray('\n  github.com/NeiP4n/promptgraph  ·  npmjs.com/package/promptgraph-mcp\n'));
 }
 
-if (!args[0] || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
+// Explicit help request always shows help.
+if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
+  showHelp();
+  process.exit(0);
+}
+
+// No args: if launched from an interactive terminal, show help.
+// If stdin is a pipe (i.e. an MCP client like Claude), fall through and
+// start the server — NEVER print to stdout here, it corrupts JSON-RPC.
+if (!args[0] && process.stdin.isTTY) {
   showHelp();
   process.exit(0);
 }
