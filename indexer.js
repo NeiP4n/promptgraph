@@ -77,11 +77,24 @@ export async function indexAll() {
   const config = loadConfig();
   const db = getDb();
 
-  // collect all files on disk
+  // collect all files on disk — use longest-matching source for files in subdirs
+  // (e.g. skills-store/marketplace/*.md → 'marketplace', not 'skills-store')
+  const normalizedSources = config.sources.map(s => ({
+    ...s,
+    normDir: path.resolve(s.dir),
+  })).sort((a, b) => b.normDir.length - a.normDir.length); // longest first
+
+  const seenFiles = new Set();
   const allFiles = [];
-  for (const { dir, source } of config.sources) {
+  for (const { dir, source } of normalizedSources) {
     const files = globSync(`${dir}/**/*.md`);
-    files.forEach(f => allFiles.push({ file: f, source }));
+    for (const f of files) {
+      const norm = path.resolve(f);
+      if (!seenFiles.has(norm)) {
+        seenFiles.add(norm);
+        allFiles.push({ file: f, source });
+      }
+    }
   }
   const total = allFiles.length;
   info(`Found ${chalk.white.bold(total)} files`);

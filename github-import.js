@@ -38,11 +38,12 @@ export async function importFromGitHub(repoUrl) {
   }
 
   const config = loadConfig();
-  const githubDir = path.join(SKILLS_DIR, 'github');
-  if (!config.sources.find(s => s.dir === githubDir)) {
-    config.sources.push({ dir: githubDir, source: 'github' });
+  // Per-repo source so two repos with the same skill name don't overwrite each other
+  const repoSource = `github:${repoName}`;
+  if (!config.sources.find(s => s.dir === dest)) {
+    config.sources.push({ dir: dest, source: repoSource });
     saveConfig(config);
-    console.log('Added github dir to config');
+    console.log(`Added ${repoSource} to config`);
   }
 
   console.log('\nReindexing...');

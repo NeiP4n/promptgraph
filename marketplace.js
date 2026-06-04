@@ -6,6 +6,7 @@ import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
 import { getDb } from './db.js';
 import { validateSkill } from './validator.js';
+import { loadConfig, saveConfig } from './config.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills-store', 'marketplace');
@@ -112,6 +113,7 @@ export async function installSkill(query) {
     const skillId = skill.id;
 
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    ensureMarketplaceSource();
     const dest = path.join(SKILLS_DIR, `${skillId}.md`);
 
     const content = await fetchText(skill.raw_url);
@@ -146,6 +148,16 @@ export async function browseBundles(topK = 20) {
   }
 }
 
+// Ensure marketplace has its own source entry (separate from skills-store)
+// so marketplace skills never collide with local skills of the same name.
+function ensureMarketplaceSource() {
+  const config = loadConfig();
+  if (!config.sources.find(s => s.source === 'marketplace')) {
+    config.sources.push({ dir: SKILLS_DIR, source: 'marketplace' });
+    saveConfig(config);
+  }
+}
+
 export async function installBundle(bundleId) {
   try {
     const text = await fetchText(REGISTRY_URL);
@@ -157,6 +169,7 @@ export async function installBundle(bundleId) {
     if (!bundle) return { error: `No bundle matching "${bundleId}"` };
 
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    ensureMarketplaceSource();
     const installed = [];
     const failed = [];
 

@@ -42,7 +42,12 @@ export async function promptConfig() {
   if (extra.trim()) {
     const extraDirs = extra.split(',').map(d => d.trim()).filter(Boolean);
     for (const dir of extraDirs) {
-      config.sources.push({ dir, source: 'custom' });
+      // Use basename so two different dirs named the same still get distinct ids
+      // if basename truly collides, append a short discriminator from the full path
+      const base = path.basename(path.resolve(dir));
+      const existing = config.sources.filter(s => s.source === `custom:${base}`);
+      const tag = existing.length === 0 ? `custom:${base}` : `custom:${base}-${existing.length}`;
+      config.sources.push({ dir, source: tag });
     }
   }
 

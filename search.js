@@ -54,44 +54,53 @@ export async function search(query, topK = 5) {
     .filter(Boolean);
 }
 
-export function getContext(id) {
+export function getContext(nameOrId) {
   const db = getDb();
-  const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id)
-    || db.prepare('SELECT * FROM skills WHERE name = ? ORDER BY id LIMIT 1').get(id);
+  let skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(nameOrId);
+  if (!skill) {
+    const res = resolveId(db, nameOrId);
+    if (res.error) return res;
+    skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(res.id);
+  }
   if (!skill) return null;
   const callees = db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(skill.id).map(r => r.to_skill);
   const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(skill.id).map(r => r.from_skill);
+
   return { ...skill, callees, callers };
 }
 
 function resolveId(db, nameOrId) {
   const byId = db.prepare('SELECT id FROM skills WHERE id = ?').get(nameOrId);
-  if (byId) return byId.id;
-  const byName = db.prepare('SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1').get(nameOrId);
-  if (byName) return byName.id;
-  return null;
+  if (byId) return { id: byId.id };
+  const byName = db.prepare('SELECT id FROM skills WHERE name = ?').all(nameOrId);
+  if (byName.length === 1) return { id: byName[0].id };
+  if (byName.length > 1) {
+    const candidates = byName.map(r => r.id).join(', ');
+    return { error: `Ambiguous name "${nameOrId}" — multiple skills match. Use a full id: ${candidates}` };
+  }
+  return { error: `Skill not found: ${nameOrId}` };
 }
 
 export function getCallers(nameOrId) {
   const db = getDb();
-  const id = resolveId(db, nameOrId);
-  if (!id) return { error: `Skill not found: ${nameOrId}` };
-  return db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(id).map(r => r.from_skill);
+  const res = resolveId(db, nameOrId);
+  if (res.error) return res;
+  return db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(res.id).map(r => r.from_skill);
 }
 
 export function getCallees(nameOrId) {
   const db = getDb();
-  const id = resolveId(db, nameOrId);
-  if (!id) return { error: `Skill not found: ${nameOrId}` };
-  return db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(id).map(r => r.to_skill);
+  const res = resolveId(db, nameOrId);
+  if (res.error) return res;
+  return db.prepare('SELECT to_skill FROM edges WHERE from_skill = ?').all(res.id).map(r => r.to_skill);
 }
 
 export function getImpact(nameOrId) {
   const db = getDb();
-  const id = resolveId(db, nameOrId);
-  if (!id) return { error: `Skill not found: ${nameOrId}` };
+  const res = resolveId(db, nameOrId);
+  if (res.error) return res;
   const visited = new Set();
-  const queue = [id];
+  const queue = [res.id];
   while (queue.length) {
     const cur = queue.shift();
     if (visited.has(cur)) continue;
