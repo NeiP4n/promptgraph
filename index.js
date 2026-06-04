@@ -15,8 +15,11 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 
 const args = process.argv.slice(2);
+const bin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '') || 'pg';
 
-if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h' || !args[0]) {
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'help', '--help', '-h']);
+
+function showHelp() {
   console.log(
     boxen(
       chalk.hex('#7C3AED').bold('PromptGraph') + '\n' +
@@ -33,12 +36,21 @@ if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h' || !args[0]) 
     ['help',                'Show this help'],
   ];
   for (const [cmd, desc] of cmds) {
-    console.log('  ' + chalk.hex('#7C3AED')('promptgraph-mcp ' + cmd.padEnd(22)) + chalk.gray(desc));
+    console.log('  ' + chalk.hex('#7C3AED')((bin + ' ' + cmd).padEnd(28)) + chalk.gray(desc));
   }
   console.log(chalk.gray('\nPlatforms: claude-code, claude-desktop, cline, codex, cursor, windsurf'));
   console.log(chalk.gray('\n  github.com/NeiP4n/promptgraph  ·  npmjs.com/package/promptgraph-mcp\n'));
-  if (!args[0]) process.exit(0);
+}
+
+if (!args[0] || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
+  showHelp();
   process.exit(0);
+}
+
+if (!KNOWN_COMMANDS.has(args[0])) {
+  console.log(chalk.red('✗') + '  Unknown command: ' + chalk.white(args[0]));
+  console.log(chalk.gray('  Run `' + bin + ' help` to see available commands.\n'));
+  process.exit(1);
 }
 
 if (args[0] === 'import') {
