@@ -103,7 +103,7 @@ if (args[0] === 'marketplace') {
     if (page < totalPages) nav.push(`${bin} marketplace ${page + 1}`);
     console.log(chalk.gray('  ' + nav.join('   ·   ')));
   }
-  console.log(chalk.gray('\n  To install or publish, ask your AI assistant — it uses the pg_marketplace_* tools.\n'));
+  console.log(chalk.gray('\n  To publish your own skill, run ') + chalk.hex('#7C3AED')('/pg-publish <file.md>') + chalk.gray(' in your AI assistant.\n'));
   process.exit(0);
 }
 
