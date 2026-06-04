@@ -2,12 +2,19 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import https from 'https';
+import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
 import { getDb } from './db.js';
 import { validateSkill } from './validator.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills-store', 'marketplace');
+
+// Deterministic short code from an id. Same id always yields the same code,
+// so codes auto-generate — no need to assign them by hand.
+export function codeFor(id) {
+  return 'pg-' + createHash('md5').update(String(id)).digest('hex').slice(0, 6);
+}
 
 // Robust fetch: try undici fetch, fall back to node:https (works where undici fails on Windows)
 function httpGet(url) {
@@ -44,6 +51,7 @@ export async function browseMarketplace(topK = 20) {
     const registry = JSON.parse(text);
     if (!Array.isArray(registry.skills)) return { error: 'Invalid registry format' };
     return registry.skills
+      .map(s => ({ ...s, code: s.code || codeFor(s.id) })) // auto-fill code
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
       .slice(0, topK);
   } catch (e) {
@@ -56,15 +64,16 @@ export async function installSkill(query) {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
     const q = String(query).trim().toLowerCase();
-    // match by code, id, or name (case-insensitive)
+    // match by code (stored OR auto-generated), id, or name
     const skill = registry.skills?.find(s =>
-      s.code?.toLowerCase() === q ||
+      (s.code || codeFor(s.id)).toLowerCase() === q ||
       s.id?.toLowerCase() === q ||
       s.name?.toLowerCase() === q
     );
     if (!skill) {
-      // maybe it's a bundle code/id — hint the user
-      const bundle = (registry.bundles || []).find(b => b.code?.toLowerCase() === q || b.id?.toLowerCase() === q);
+      const bundle = (registry.bundles || []).find(b =>
+        (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q
+      );
       if (bundle) return { error: `"${query}" is a bundle. Use pg_bundle_install("${bundle.id}") instead.` };
       return { error: `No skill matching "${query}" (try a code like pg-xxxxxx, an id, or a name)` };
     }
@@ -89,6 +98,7 @@ export async function browseBundles(topK = 20) {
     const registry = JSON.parse(text);
     const bundles = registry.bundles || [];
     return bundles
+      .map(b => ({ ...b, code: b.code || codeFor(b.id) }))
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
       .slice(0, topK);
   } catch (e) {
@@ -102,7 +112,7 @@ export async function installBundle(bundleId) {
     const registry = JSON.parse(text);
     const q = String(bundleId).trim().toLowerCase();
     const bundle = (registry.bundles || []).find(b =>
-      b.code?.toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
+      (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
     );
     if (!bundle) return { error: `No bundle matching "${bundleId}"` };
 
