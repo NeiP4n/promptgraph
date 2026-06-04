@@ -12,7 +12,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h']);
 
 function showHelp() {
   console.log(
@@ -26,6 +26,7 @@ function showHelp() {
   const cmds = [
     ['init',                'First-time setup + index all skills'],
     ['reindex',             'Re-index all skills'],
+    ['search <query>',      'Search skills from the terminal'],
     ['import <owner/repo>', 'Import skills from GitHub'],
     ['marketplace [page]',  'Browse the community skill registry'],
     ['validate <file.md>',  'Validate a skill before publishing'],
@@ -211,6 +212,27 @@ if (args[0] === 'validate') {
     result.errors.forEach(e => console.log('   ' + chalk.red('•') + ' ' + e));
     process.exit(1);
   }
+}
+
+if (args[0] === 'search') {
+  const query = args.slice(1).join(' ');
+  if (!query) { error('Usage: ' + bin + ' search <query>'); process.exit(1); }
+  const { search: searchSkills } = await import('./search.js');
+  const spin = (await import('./cli.js')).spinner('Searching...');
+  spin.start();
+  const results = await searchSkills(query, 10);
+  spin.stop();
+  if (!results.length) { info('No results for: ' + query); process.exit(0); }
+  const purple = chalk.hex('#7C3AED');
+  console.log();
+  results.forEach((s, i) => {
+    const score = chalk.dim((s.score * 100).toFixed(0) + '%');
+    console.log('  ' + chalk.dim(String(i + 1) + '.') + ' ' + chalk.bold.white(s.name) + '  ' + score);
+    console.log('     ' + chalk.dim(s.description || ''));
+    console.log('     ' + purple(s.source) + '  ' + chalk.dim(s.path));
+    console.log();
+  });
+  process.exit(0);
 }
 
 if (args[0] === 'import') {

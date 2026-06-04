@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { embed, cosineSimilarity } from './embedder.js';
+import { embed } from './embedder.js';
 import { getDb } from './db.js';
+import { annSearch } from './ann.js';
+import { cosineSimilarity } from './embedder.js';
 
 let input = '';
 process.stdin.on('data', d => input += d);
@@ -13,19 +15,34 @@ process.stdin.on('end', async () => {
     const queryVec = await embed(prompt);
     const db = getDb();
 
-    // search over chunks, deduplicate by skill
-    const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
-    const bestBySkill = new Map();
-    for (const chunk of chunks) {
-      const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
-      const prev = bestBySkill.get(chunk.skill_id);
-      if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
-    }
+    // Use ANN index (fast). Fall back to brute-force only if ANN unavailable.
+    let topIds;
+    const annResults = await annSearch(queryVec, 15);
 
-    const topIds = [...bestBySkill.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .filter(([, score]) => score > 0.55);
+    if (annResults && annResults.length > 0) {
+      const bestBySkill = new Map();
+      for (const r of annResults) {
+        const prev = bestBySkill.get(r.skill_id);
+        if (!prev || r.score > prev) bestBySkill.set(r.skill_id, r.score);
+      }
+      topIds = [...bestBySkill.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .filter(([, score]) => score > 0.55);
+    } else {
+      // Fallback: brute-force (only before first reindex)
+      const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
+      const bestBySkill = new Map();
+      for (const chunk of chunks) {
+        const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
+        const prev = bestBySkill.get(chunk.skill_id);
+        if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
+      }
+      topIds = [...bestBySkill.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .filter(([, score]) => score > 0.55);
+    }
 
     if (topIds.length === 0) process.exit(0);
 

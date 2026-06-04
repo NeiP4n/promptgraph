@@ -108,7 +108,7 @@ export function getImpact(nameOrId) {
     const callers = db.prepare('SELECT from_skill FROM edges WHERE to_skill = ?').all(cur).map(r => r.from_skill);
     queue.push(...callers);
   }
-  visited.delete(id);
+  visited.delete(res.id);
   return [...visited];
 }
 

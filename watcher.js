@@ -25,8 +25,11 @@ export function startWatcher() {
 }
 
 function getSource(filePath, config) {
-  for (const { dir, source } of config.sources) {
-    if (filePath.startsWith(dir)) return source;
+  const normFile = path.resolve(filePath);
+  // Sort longest-first so skills-store/marketplace wins over skills-store
+  const sorted = [...config.sources].sort((a, b) => b.dir.length - a.dir.length);
+  for (const { dir, source } of sorted) {
+    if (normFile.startsWith(path.resolve(dir))) return source;
   }
   return 'unknown';
 }
