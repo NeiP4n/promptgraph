@@ -24,7 +24,7 @@ When you ask Claude a question, it calls `pg_search("your task")` → finds the 
 ## Features
 
 - **Vector search** via `fastembed` (`BGE-Small-EN`, 23MB, runs locally, no API needed)
-- **Semantic matching** — Russian query finds English skill, synonyms work
+- **Semantic matching** — synonyms and paraphrases work; queries should be in English (model is English-only)
 - **Auto-reindex** via file watcher when skills change
 - **Graph edges** — tracks which skills call other skills
 - **MCP server** — integrates directly into Claude Code and Claude Desktop

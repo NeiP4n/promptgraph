@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
@@ -22,13 +22,12 @@ export async function importFromGitHub(repoUrl) {
 
   if (fs.existsSync(dest)) {
     console.log(`Updating ${repoName}...`);
-    execSync('git', { stdio: 'inherit', args: ['-C', dest, 'pull', '--depth=1'] });
+    const pullResult = spawnSync('git', ['-C', dest, 'pull', '--depth=1'], { stdio: 'inherit' });
+    if (pullResult.status !== 0) throw new Error(`git pull failed for ${repoName}`);
   } else {
     console.log(`Cloning ${url}...`);
-    // use spawnSync to avoid shell injection
-    const { spawnSync } = await import('child_process');
-    const result = spawnSync('git', ['clone', '--depth=1', url, dest], { stdio: 'inherit' });
-    if (result.status !== 0) throw new Error(`git clone failed for ${url}`);
+    const cloneResult = spawnSync('git', ['clone', '--depth=1', url, dest], { stdio: 'inherit' });
+    if (cloneResult.status !== 0) throw new Error(`git clone failed for ${url}`);
   }
 
   const mdFiles = globSync(`${dest}/**/*.md`);

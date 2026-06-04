@@ -149,6 +149,16 @@ export async function indexAll() {
       }
     } catch {
       errors++;
+      // Remove stale record if the file was previously indexed but now fails to parse
+      try {
+        const stale = db.prepare('SELECT id FROM skills WHERE path = ?').get(file);
+        if (stale) {
+          db.prepare('DELETE FROM skills WHERE id = ?').run(stale.id);
+          db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(stale.id);
+          db.prepare('DELETE FROM edges WHERE from_skill = ? OR to_skill = ?').run(stale.id, stale.id);
+          db.prepare('DELETE FROM ratings WHERE skill_id = ?').run(stale.id);
+        }
+      } catch {}
     }
   }
 

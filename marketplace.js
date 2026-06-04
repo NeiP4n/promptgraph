@@ -115,7 +115,16 @@ export async function installSkill(query) {
     const dest = path.join(SKILLS_DIR, `${skillId}.md`);
 
     const content = await fetchText(skill.raw_url);
-    fs.writeFileSync(dest, content);
+
+    // Validate before writing — reject malicious or junk downloads
+    const tmpPath = dest + '.tmp';
+    fs.writeFileSync(tmpPath, content);
+    const validation = validateSkill(tmpPath);
+    if (!validation.ok) {
+      fs.unlinkSync(tmpPath);
+      return { error: 'Downloaded skill failed validation', issues: validation.errors };
+    }
+    fs.renameSync(tmpPath, dest);
 
     return { success: true, path: dest, name: skill.name };
   } catch (e) {
@@ -156,7 +165,12 @@ export async function installBundle(bundleId) {
       if (!skill?.raw_url) { failed.push(skillId); continue; }
       try {
         const content = await fetchText(skill.raw_url);
-        fs.writeFileSync(path.join(SKILLS_DIR, `${skillId}.md`), content);
+        const dest = path.join(SKILLS_DIR, `${skillId}.md`);
+        const tmpPath = dest + '.tmp';
+        fs.writeFileSync(tmpPath, content);
+        const validation = validateSkill(tmpPath);
+        if (!validation.ok) { fs.unlinkSync(tmpPath); failed.push(skillId); continue; }
+        fs.renameSync(tmpPath, dest);
         installed.push(skillId);
       } catch {
         failed.push(skillId);
