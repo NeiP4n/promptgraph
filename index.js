@@ -17,7 +17,7 @@ import chalk from 'chalk';
 const args = process.argv.slice(2);
 const bin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '') || 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'help', '--help', '-h']);
 
 function showHelp() {
   console.log(
@@ -32,6 +32,7 @@ function showHelp() {
     ['init',                'First-time setup + index all skills'],
     ['reindex',             'Re-index all skills'],
     ['import <owner/repo>', 'Import skills from GitHub'],
+    ['validate <file.md>',  'Validate a skill before publishing'],
     ['setup <platform>',    'Register MCP in platform config'],
     ['help',                'Show this help'],
   ];
@@ -51,6 +52,22 @@ if (!KNOWN_COMMANDS.has(args[0])) {
   console.log(chalk.red('✗') + '  Unknown command: ' + chalk.white(args[0]));
   console.log(chalk.gray('  Run `' + bin + ' help` to see available commands.\n'));
   process.exit(1);
+}
+
+if (args[0] === 'validate') {
+  const { validateSkill } = await import('./validator.js');
+  const file = args[1];
+  if (!file) { error('Usage: ' + bin + ' validate <skill.md>'); process.exit(1); }
+  const result = validateSkill(file);
+  result.warnings.forEach(w => console.log(chalk.yellow('⚠') + '  ' + chalk.gray(w)));
+  if (result.ok) {
+    success('Skill is valid');
+    process.exit(0);
+  } else {
+    error('Validation failed:');
+    result.errors.forEach(e => console.log('   ' + chalk.red('•') + ' ' + e));
+    process.exit(1);
+  }
 }
 
 if (args[0] === 'import') {

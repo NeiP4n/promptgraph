@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { spawnSync } from 'child_process';
 import { getDb } from './db.js';
+import { validateSkill } from './validator.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills-store', 'marketplace');
@@ -47,7 +48,12 @@ export async function installSkill(skillId) {
 export async function publishSkill(filePath) {
   if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
 
-  const content = fs.readFileSync(filePath, 'utf8');
+  // validate before publishing — block junk and malicious skills
+  const validation = validateSkill(filePath);
+  if (!validation.ok) {
+    return { error: 'Validation failed', issues: validation.errors, warnings: validation.warnings };
+  }
+
   const name = path.basename(filePath, '.md');
 
   try {

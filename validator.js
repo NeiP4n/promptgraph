@@ -1,0 +1,110 @@
+import fs from 'fs';
+import matter from 'gray-matter';
+
+// patterns that indicate malicious or junk skills
+const DANGEROUS_PATTERNS = [
+  { re: /curl\s+[^\n|]*\|\s*(ba)?sh/i, msg: 'pipes remote content to shell (curl | sh)' },
+  { re: /wget\s+[^\n|]*\|\s*(ba)?sh/i, msg: 'pipes remote content to shell (wget | sh)' },
+  { re: /rm\s+-rf\s+[~/]/i, msg: 'destructive rm -rf on home/root' },
+  { re: /\b(eval|exec)\s*\(\s*(atob|base64|fromCharCode)/i, msg: 'obfuscated code execution' },
+  { re: /(AWS|SECRET|PRIVATE|API)_?KEY\s*=\s*["'][A-Za-z0-9/+]{16,}/i, msg: 'hardcoded credential' },
+  { re: /process\.env\.[A-Z_]+\s*[^\n]{0,40}(fetch|http|post|curl)/i, msg: 'reads env vars and exfiltrates over network' },
+  { re: /\b(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts?|rules)/i, msg: 'prompt injection attempt' },
+  { re: /\b(reveal|print|output|show)\s+(your\s+)?(system\s+prompt|instructions|api\s*key)/i, msg: 'prompt extraction attempt' },
+  { re: /\.ssh\/id_rsa|\.aws\/credentials|\.env\b.*(cat|read|cp|mv)/i, msg: 'accesses sensitive credential files' },
+];
+
+const MIN_CONTENT_LENGTH = 200;       // chars of actual instruction
+const MAX_CONTENT_LENGTH = 100000;    // 100KB cap
+const MIN_DESCRIPTION_LENGTH = 15;
+const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+export function validateSkill(filePath) {
+  const errors = [];
+  const warnings = [];
+
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, errors: ['File does not exist'], warnings: [] };
+  }
+
+  const raw = fs.readFileSync(filePath, 'utf8');
+
+  // size checks
+  if (raw.length < MIN_CONTENT_LENGTH) {
+    errors.push(`Too short (${raw.length} chars, min ${MIN_CONTENT_LENGTH}). Likely not a real skill.`);
+  }
+  if (raw.length > MAX_CONTENT_LENGTH) {
+    errors.push(`Too large (${raw.length} chars, max ${MAX_CONTENT_LENGTH}).`);
+  }
+
+  // frontmatter
+  let data, content;
+  try {
+    const parsed = matter(raw);
+    data = parsed.data;
+    content = parsed.content;
+  } catch (e) {
+    errors.push(`Invalid frontmatter: ${e.message}`);
+    return { ok: false, errors, warnings };
+  }
+
+  // name
+  if (!data.name) {
+    errors.push('Missing required field: name');
+  } else if (typeof data.name !== 'string') {
+    errors.push('Field "name" must be a string');
+  } else if (!NAME_RE.test(data.name)) {
+    errors.push(`Invalid name "${data.name}". Use lowercase, digits, hyphens (2-64 chars).`);
+  }
+
+  // description
+  if (!data.description) {
+    errors.push('Missing required field: description');
+  } else if (typeof data.description !== 'string') {
+    errors.push('Field "description" must be a string');
+  } else if (data.description.trim().length < MIN_DESCRIPTION_LENGTH) {
+    errors.push(`Description too short (min ${MIN_DESCRIPTION_LENGTH} chars).`);
+  }
+
+  // body must have real instruction content
+  if (content && content.trim().length < MIN_CONTENT_LENGTH) {
+    warnings.push('Body is very short — may lack actionable instructions.');
+  }
+
+  // security scan over the whole file
+  for (const { re, msg } of DANGEROUS_PATTERNS) {
+    if (re.test(raw)) {
+      errors.push(`Security: ${msg}`);
+    }
+  }
+
+  // junk filename heuristic
+  const base = filePath.split(/[\\/]/).pop().toLowerCase();
+  if (['readme.md', 'changelog.md', 'license.md', 'contributing.md'].includes(base)) {
+    warnings.push('Filename looks like a docs file, not a skill.');
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+// CLI: node validator.js <file>
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const file = process.argv[2];
+  if (!file) {
+    console.error('Usage: node validator.js <skill.md>');
+    process.exit(1);
+  }
+  const result = validateSkill(file);
+  if (result.warnings.length) {
+    console.log('⚠ Warnings:');
+    result.warnings.forEach(w => console.log('  - ' + w));
+  }
+  if (result.ok) {
+    console.log('✓ Skill is valid');
+    process.exit(0);
+  } else {
+    console.log('✗ Validation failed:');
+    result.errors.forEach(e => console.log('  - ' + e));
+    process.exit(1);
+  }
+}
