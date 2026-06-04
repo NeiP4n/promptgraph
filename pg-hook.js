@@ -2,7 +2,6 @@
 import { embed, cosineSimilarity } from './embedder.js';
 import { getDb } from './db.js';
 
-const chunks = [];
 let input = '';
 process.stdin.on('data', d => input += d);
 process.stdin.on('end', async () => {
@@ -13,18 +12,27 @@ process.stdin.on('end', async () => {
 
     const queryVec = await embed(prompt);
     const db = getDb();
-    const skills = db.prepare('SELECT name, description, path, embedding FROM skills').all();
 
-    const results = skills
-      .map(s => ({
-        name: s.name,
-        description: s.description,
-        path: s.path,
-        score: cosineSimilarity(queryVec, JSON.parse(s.embedding)),
-      }))
-      .sort((a, b) => b.score - a.score)
+    // search over chunks, deduplicate by skill
+    const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
+    const bestBySkill = new Map();
+    for (const chunk of chunks) {
+      const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
+      const prev = bestBySkill.get(chunk.skill_id);
+      if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
+    }
+
+    const topIds = [...bestBySkill.entries()]
+      .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
-      .filter(s => s.score > 0.55);
+      .filter(([, score]) => score > 0.55);
+
+    if (topIds.length === 0) process.exit(0);
+
+    const results = topIds.map(([id, score]) => {
+      const skill = db.prepare('SELECT name, description, path FROM skills WHERE id = ?').get(id);
+      return skill ? { ...skill, score } : null;
+    }).filter(Boolean);
 
     if (results.length === 0) process.exit(0);
 

@@ -2,9 +2,18 @@ import fs from 'fs';
 import path from 'path';
 import matter from 'gray-matter';
 
-const SKILL_REF_RE = /\/([a-z0-9][a-z0-9-]+)/g;
+// match /skill-name but not URLs (http://, https://, etc.)
+const SKILL_REF_RE = /(?<!https?:|ftp:)(?<![a-zA-Z0-9])\/([a-z0-9][a-z0-9-]{2,})/g;
 
-export function parseSkillFile(filePath, source) {
+// files that are likely not skills
+const SKIP_FILENAMES = new Set(['readme', 'changelog', 'license', 'contributing', 'code-of-conduct', 'security', 'authors', 'credits']);
+
+export function isSkillFile(filePath) {
+  const base = filePath.split(/[\\/]/).pop().replace(/\.md$/i, '').toLowerCase();
+  return !SKIP_FILENAMES.has(base);
+}
+
+export function parseSkillFile(filePath, source, opts = {}) {
   const raw = fs.readFileSync(filePath, 'utf8');
 
   let name, description, content;

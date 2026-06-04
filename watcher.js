@@ -2,7 +2,8 @@ import chokidar from 'chokidar';
 import path from 'path';
 import os from 'os';
 import { indexFile } from './indexer.js';
-import { getDb } from './db.js';
+import { getDb, skillId } from './db.js';
+import { parseSkillFile } from './parser.js';
 
 const SOURCES = [
   { dir: path.join(os.homedir(), '.claude', 'skills-store'), source: 'skills-store' },
@@ -21,13 +22,7 @@ export function startWatcher() {
 
   watcher.on('add', filePath => reindex(filePath));
   watcher.on('change', filePath => reindex(filePath));
-  watcher.on('unlink', filePath => {
-    const name = path.basename(filePath, '.md');
-    const db = getDb();
-    db.prepare('DELETE FROM skills WHERE name = ?').run(name);
-    db.prepare('DELETE FROM edges WHERE from_skill = ? OR to_skill = ?').run(name, name);
-    console.error(`[PromptGraph] Removed: ${name}`);
-  });
+  watcher.on('unlink', filePath => remove(filePath));
 
   console.error('[PromptGraph] Watcher started');
 }
@@ -37,6 +32,22 @@ function getSource(filePath) {
     if (filePath.startsWith(dir)) return source;
   }
   return 'unknown';
+}
+
+function remove(filePath) {
+  if (!filePath.endsWith('.md')) return;
+  try {
+    const source = getSource(filePath);
+    const name = path.basename(filePath, '.md');
+    const id = skillId(source, name);
+    const db = getDb();
+    db.prepare('DELETE FROM skills WHERE id = ?').run(id);
+    db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(id);
+    db.prepare('DELETE FROM edges WHERE from_skill = ? OR to_skill = ?').run(id, id);
+    console.error(`[PromptGraph] Removed: ${id}`);
+  } catch (e) {
+    console.error(`[PromptGraph] Error removing ${filePath}: ${e.message}`);
+  }
 }
 
 async function reindex(filePath) {

@@ -5,9 +5,13 @@ import fs from 'fs';
 
 const DB_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'promptgraph.db');
 
+let _db = null;
+
 export function getDb() {
+  if (_db) return _db;
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new Database(DB_PATH);
+  _db = db;
   db.pragma('journal_mode = WAL');
 
   db.exec(`

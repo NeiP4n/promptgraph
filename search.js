@@ -45,9 +45,10 @@ export async function search(query, topK = 5) {
   return [...bestBySkill.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, topK)
+    // apply same rating boost as ANN path
     .map(([id, score]) => {
       const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
-      return skill ? { ...skill, score } : null;
+      return skill ? { ...skill, score: applyRatingBoost(db, id, score) } : null;
     })
     .filter(Boolean);
 }

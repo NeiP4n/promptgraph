@@ -19,7 +19,7 @@ Claude Code loads all `.md` files from `~/.claude/commands/` into the system pro
   ...            ← 40+ skills, NOT loaded into context
 ```
 
-When you ask Claude a question, it calls `pg_search("your task")` → finds the right skill via vector search → reads only that file. **One skill loaded instead of forty.**
+When you ask Claude a question, it calls `pg_search("your task")` → finds the right skill via vector search → returns the path. Claude then reads only that file instead of having all skills preloaded in context.
 
 ## Features
 

@@ -1,7 +1,7 @@
 import { globSync } from 'glob';
 import { createHash } from 'crypto';
 import fs from 'fs';
-import { parseSkillFile } from './parser.js';
+import { parseSkillFile, isSkillFile } from './parser.js';
 import { embedBatch, BATCH_SIZE } from './embedder.js';
 import { getDb, skillId } from './db.js';
 import { loadConfig } from './config.js';
@@ -51,8 +51,10 @@ async function indexBatch(db, skills) {
       upsertSkill.run({ id, name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content, hash: skill.hash || null });
       deleteChunks.run(id);
       deleteEdges.run(id);
-      for (const called of skill.calls) {
-        upsertEdge.run(id, called);
+      for (const calledName of skill.calls) {
+        // try to resolve to a real skill id, fallback to bare name
+        const resolved = db.prepare("SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(calledName);
+        upsertEdge.run(id, resolved ? resolved.id : calledName);
       }
     }
     for (let i = 0; i < allChunks.length; i++) {
@@ -88,6 +90,7 @@ export async function indexAll() {
   let skipped = 0;
   for (const { file, source } of allFiles) {
     try {
+      if (!isSkillFile(file)) { skipped++; count++; continue; }
       const hash = fileHash(file);
       const parsed = parseSkillFile(file, source);
       const id = skillId(source, parsed.name);
