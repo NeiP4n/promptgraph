@@ -123,7 +123,7 @@ if (args[0] === 'marketplace') {
   console.log();
   console.log('  ' + purple.bold('PromptGraph Marketplace'));
   console.log('  ' + chalk.gray(`${all.length} skill${all.length === 1 ? '' : 's'}  ·  page ${page}/${totalPages}`));
-  console.log('  ' + chalk.gray('─'.repeat(50)));
+  console.log('  ' + chalk.gray('─'.repeat(54)));
   console.log();
 
   slice.forEach((s, i) => {
@@ -132,18 +132,23 @@ if (args[0] === 'marketplace') {
     console.log('  ' + num + ' ' + chalk.white.bold(s.id) + '   ' + stars);
     console.log(wrap(s.description, 64, '      '));
     if (s.tags?.length) console.log('      ' + purple(s.tags.map(t => '#' + t).join(' ')));
-    console.log('      ' + chalk.gray('install: ') + chalk.cyan(`/pg-fetch ${s.id}`));
+    console.log('      ' + chalk.gray('install:  ') + chalk.cyan(`pg_marketplace_install("${s.id}")`));
+    console.log('      ' + chalk.gray('use:      ') + chalk.cyan(`pg_search("${s.id}")`) + chalk.gray(' → read the file'));
     console.log();
   });
 
-  console.log('  ' + chalk.gray('─'.repeat(50)));
+  console.log('  ' + chalk.gray('─'.repeat(54)));
   if (totalPages > 1) {
     const nav = [];
     if (page > 1) nav.push(chalk.cyan(`${bin} marketplace ${page - 1}`) + chalk.gray(' ‹ prev'));
     if (page < totalPages) nav.push(chalk.gray('next › ') + chalk.cyan(`${bin} marketplace ${page + 1}`));
     console.log('  ' + nav.join('    '));
+    console.log();
   }
-  console.log('  ' + chalk.gray('publish a skill:  ') + chalk.cyan('/pg-publish <file.md>') + chalk.gray('  (via your AI assistant)'));
+  console.log('  ' + chalk.gray('These run through your AI assistant via the PromptGraph MCP server:'));
+  console.log('    ' + chalk.cyan('pg_marketplace_install') + chalk.gray('  install a skill   ') + chalk.gray('(or /pg-fetch <id>)'));
+  console.log('    ' + chalk.cyan('pg_marketplace_publish') + chalk.gray('  share your own   ') + chalk.gray('(or /pg-publish <file>)'));
+  console.log('    ' + chalk.cyan('pg_search') + chalk.gray('               find & apply any installed skill'));
   console.log();
   process.exit(0);
 }
