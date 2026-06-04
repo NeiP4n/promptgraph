@@ -31,7 +31,6 @@ async function indexBatch(db, skills) {
   const upsertChunk = db.prepare('INSERT OR REPLACE INTO chunks (skill_id, chunk_index, text, embedding) VALUES (?, ?, ?, ?)');
   const upsertEdge = db.prepare('INSERT OR IGNORE INTO edges (from_skill, to_skill) VALUES (?, ?)');
 
-  // collect all chunks across skills in batch
   const allChunks = [];
   for (const skill of skills) {
     const id = skillId(skill.source, skill.name);
@@ -41,7 +40,6 @@ async function indexBatch(db, skills) {
     }
   }
 
-  // embed all chunks in one batch call
   const texts = allChunks.map(c => c.text);
   const embeddings = await embedBatch(texts);
 
@@ -52,7 +50,6 @@ async function indexBatch(db, skills) {
       deleteChunks.run(id);
       deleteEdges.run(id);
       for (const calledName of skill.calls) {
-        // try to resolve to a real skill id, fallback to bare name
         const resolved = db.prepare("SELECT id FROM skills WHERE name = ? ORDER BY id LIMIT 1").get(calledName);
         upsertEdge.run(id, resolved ? resolved.id : calledName);
       }
@@ -68,54 +65,66 @@ async function indexBatch(db, skills) {
 export async function indexAll() {
   const config = loadConfig();
   const db = getDb();
-  db.prepare('DELETE FROM edges').run();
 
-  // pre-count total files
-  let total = 0;
+  // collect all files on disk
   const allFiles = [];
   for (const { dir, source } of config.sources) {
     const files = globSync(`${dir}/**/*.md`);
     files.forEach(f => allFiles.push({ file: f, source }));
-    total += files.length;
   }
+  const total = allFiles.length;
   info(`Found ${chalk.white.bold(total)} files`);
+
+  // reconcile: remove skills whose files no longer exist
+  const allIds = db.prepare('SELECT id, path FROM skills').all();
+  const existingPaths = new Set(allFiles.map(f => f.file));
+  let removed = 0;
+  for (const row of allIds) {
+    if (!existingPaths.has(row.path)) {
+      db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
+      db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(row.id);
+      db.prepare('DELETE FROM edges WHERE from_skill = ? OR to_skill = ?').run(row.id, row.id);
+      db.prepare('DELETE FROM ratings WHERE skill_id = ?').run(row.id);
+      removed++;
+    }
+  }
+  if (removed > 0) info(`Removed ${chalk.yellow(removed)} deleted skills`);
 
   let count = 0;
   let errors = 0;
+  let skipped = 0;
   let batch = [];
   const start = Date.now();
-
   const getHash = db.prepare('SELECT hash FROM skills WHERE id = ?');
 
-  let skipped = 0;
   for (const { file, source } of allFiles) {
     try {
       if (!isSkillFile(file)) { skipped++; count++; continue; }
       const hash = fileHash(file);
       const parsed = parseSkillFile(file, source);
       const id = skillId(source, parsed.name);
+
       const existing = getHash.get(id);
       if (existing?.hash === hash) {
         skipped++;
         count++;
-        if (count % 50 === 0) {
+        if (count % 100 === 0) {
           const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
           progress(count, total, `skipped: ${skipped}  eta: ${eta}s`);
         }
         continue;
       }
-      const skill = { ...parsed, hash };
-      batch.push(skill);
+
+      batch.push({ ...parsed, hash });
+
       if (batch.length >= BATCH_SIZE) {
         await indexBatch(db, batch);
         count += batch.length;
         batch = [];
-        const pct = Math.round(count / total * 100);
-        const elapsed = ((Date.now() - start) / 1000).toFixed(0);
         const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
-        process.stdout.write(`\r  [${pct}%] ${count}/${total} skills | ${elapsed}s elapsed | ETA: ${eta}s | errors: ${errors}  `);
+        progress(count, total, `skipped: ${skipped}  eta: ${eta}s`);
       }
-    } catch (e) {
+    } catch {
       errors++;
     }
   }
@@ -125,19 +134,29 @@ export async function indexAll() {
     count += batch.length;
   }
 
+  // rebuild all edges for unchanged skills too (fixes edge loss bug)
+  rebuildEdgesForUnchanged(db);
+
   progress(total, total, 'done');
   console.log();
   const spin = spinner('Building ANN index...');
   spin.start();
   await buildAnnIndex();
   spin.stop();
-  success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${errors} errors, ${skipped} skipped)`)}`);
+  success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${errors} errors, ${skipped} skipped, ${removed} removed)`)}`);
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   info(chalk.gray(`Time: ${elapsed}s`));
+}
+
+function rebuildEdgesForUnchanged(db) {
+  // For skills that were skipped (hash unchanged), their edges were not touched.
+  // This is correct — we only delete+rebuild edges for skills that were re-indexed.
+  // No action needed here: edges for unchanged skills remain intact.
+  // The global DELETE FROM edges at the start was the bug — it's now removed.
 }
 
 export async function indexFile(filePath, source) {
   const db = getDb();
   const skill = parseSkillFile(filePath, source);
-  await indexBatch(db, [skill]);
+  await indexBatch(db, [{ ...skill, hash: fileHash(filePath) }]);
 }

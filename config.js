@@ -17,7 +17,8 @@ export function loadConfig() {
   if (fs.existsSync(CONFIG_PATH)) {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   }
-  return DEFAULTS;
+  // deep copy to avoid mutating DEFAULTS
+  return JSON.parse(JSON.stringify(DEFAULTS));
 }
 
 export function saveConfig(config) {

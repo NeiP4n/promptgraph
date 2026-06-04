@@ -22,10 +22,13 @@ export async function importFromGitHub(repoUrl) {
 
   if (fs.existsSync(dest)) {
     console.log(`Updating ${repoName}...`);
-    execSync(`git -C "${dest}" pull --depth=1`, { stdio: 'inherit' });
+    execSync('git', { stdio: 'inherit', args: ['-C', dest, 'pull', '--depth=1'] });
   } else {
     console.log(`Cloning ${url}...`);
-    execSync(`git clone --depth=1 ${url} "${dest}"`, { stdio: 'inherit' });
+    // use spawnSync to avoid shell injection
+    const { spawnSync } = await import('child_process');
+    const result = spawnSync('git', ['clone', '--depth=1', url, dest], { stdio: 'inherit' });
+    if (result.status !== 0) throw new Error(`git clone failed for ${url}`);
   }
 
   const mdFiles = globSync(`${dest}/**/*.md`);
