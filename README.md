@@ -38,10 +38,15 @@ After:   1 router + 1 match    →  ~300 tokens total
 ## Quick Start
 
 ```bash
+# one-time global install (recommended — faster than npx every time)
+npm install -g promptgraph-mcp@latest
+pg init
+
+# or without installing
 npx promptgraph-mcp init
 ```
 
-That's it. `init` downloads the embedding model (~23 MB, once), indexes your skills, and prints the config to paste into `settings.json`.
+`init` downloads the embedding model (~23 MB, once), indexes your skills, and prints the config to paste into `settings.json`.
 
 ### Add to Claude Code (`~/.claude/settings.json`)
 
