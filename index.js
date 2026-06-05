@@ -246,12 +246,40 @@ if (args[0] === 'marketplace') {
 
 if (args[0] === 'validate') {
   const { validateSkill } = await import('./validator.js');
+  const { isSkillFile } = await import('./parser.js');
   const file = args[1];
   if (!file) { error('Usage: ' + bin + ' validate <skill.md>'); process.exit(1); }
+
+  const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+
+  // Show indexing score breakdown
+  if (raw) {
+    const { skillScore: _score } = await import('./parser.js').catch(() => ({}));
+    const willIndex = isSkillFile(file, raw);
+    const scoreLabel = willIndex ? chalk.green('✓ will be indexed') : chalk.red('✗ will be skipped by indexer');
+    console.log(chalk.bold('\n  Indexing check: ') + scoreLabel);
+
+    // Show which signals were detected
+    const lines = raw.split('\n').filter(l => l.trim());
+    const signals = [];
+    try { const { data } = (await import('gray-matter')).default(raw); if (data.name) signals.push(chalk.green('+4 frontmatter name:')); } catch {}
+    if (/^#{1,3}\s+(steps?|usage|instructions?|how\s+to|when\s+to\s+use|workflow)/im.test(raw)) signals.push(chalk.green('+2 instructional headers (## Steps / ## Usage)'));
+    if (lines.filter(l => /^#{1,3}\s/.test(l)).some(h => /\b(run|use|fix|debug|check|create|deploy|scan|audit)\b/i.test(h))) signals.push(chalk.green('+2 imperative verbs in headers'));
+    if (raw.includes('```')) signals.push(chalk.green('+1 code block'));
+    if (lines.some(l => /^\d+\.\s/.test(l))) signals.push(chalk.green('+1 numbered list'));
+    if (lines.some(l => /^[-*+]\s/.test(l))) signals.push(chalk.green('+1 bullet list'));
+    const firstH = lines.find(l => /^#{1,3}\s/.test(l))?.replace(/^#+\s*/, '') || '';
+    if (/^(overview|introduction|about|background|welcome)/i.test(firstH)) signals.push(chalk.red('-3 first header looks like docs ("' + firstH + '")'));
+    if (signals.length) {
+      signals.forEach(s => console.log('    ' + s));
+    }
+    console.log();
+  }
+
   const result = validateSkill(file);
   result.warnings.forEach(w => console.log(chalk.yellow('⚠') + '  ' + chalk.gray(w)));
   if (result.ok) {
-    success('Skill is valid');
+    success('Skill is valid — ready to publish');
     process.exit(0);
   } else {
     error('Validation failed:');
