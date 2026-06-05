@@ -31,7 +31,7 @@ After:   1 router + 1 match    →  ~300 tokens total
 - ⚡ **Local embeddings** — `fastembed` BGE-Small-EN, 23 MB, no API key needed
 - 👁️ **File watcher** — auto-reindexes when you add or edit skills
 - 🛡️ **Validator** — blocks malicious/junk skills before they reach your machine
-- 🌐 **MCP-native** — works with Claude Code, Claude Desktop, Cline, and any MCP client
+- 🌐 **MCP-native** — works with Claude Code, Claude Desktop, Cline, OpenCode, Cursor, Windsurf, and any MCP client
 
 ---
 
@@ -60,6 +60,22 @@ npx promptgraph-mcp init
   }
 }
 ```
+
+### Add to OpenCode (`~/.config/opencode/opencode.json`)
+
+```json
+{
+  "mcp": {
+    "promptgraph": {
+      "type": "local",
+      "command": ["npx", "promptgraph-mcp", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+> `pg setup` auto-detects OpenCode and writes this config for you.
 
 ### Move your skills out of `commands/`
 
