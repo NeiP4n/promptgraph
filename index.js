@@ -449,6 +449,21 @@ if (args[0] === 'bundle') {
     const repoArg = doPush ? args[2] : args[2];
     if (!repoArg || !repoArg.includes('/')) { error('Usage: pg bundle add-repo <owner/repo> [--push]'); process.exit(1); }
     const repo = repoArg.replace('https://github.com/', '').replace('.git', '');
+
+    // Validate repo has a skill subdirectory before publishing
+    const { detectSkillsDirFromAPI: _detectDir } = await import('./github-import.js');
+    process.stdout.write(chalk.gray(`  Checking ${repo} for skill subdirectory... `));
+    const detected = await _detectDir(repo);
+    if (!detected) {
+      console.log(chalk.red('none found'));
+      error(
+        `Cannot publish: no skill subdirectory found in ${repo}\n` +
+        `  Expected: skills/, prompts/, commands/, agents/, or any folder with .md files\n` +
+        `  Visit: https://github.com/${repo}`
+      );
+      process.exit(1);
+    }
+    console.log(chalk.green(`found: ${detected.label}/`));
     const name = repo.split('/')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const id = repo.replace('/', '-').toLowerCase();
     const bundle = {

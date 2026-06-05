@@ -33,7 +33,8 @@ function repoExists(ownerRepo) {
   });
 }
 
-// Ask GitHub API which subdir to use (without cloning anything).
+// Ask GitHub API which subdir to use (without cloning anything). Exported for validation.
+export
 // Returns { subdir, label } or null (use root).
 async function detectSkillsDirFromAPI(ownerRepo) {
   try {
