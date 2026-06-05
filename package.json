@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "2.1.9",
+  "version": "2.2.0",
   "main": "index.js",
   "type": "module",
   "bin": {
