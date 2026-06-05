@@ -211,19 +211,21 @@ export async function importFromGitHub(repoUrl) {
     const detected = await detectSkillsDirFromAPI(ownerRepo);
     skillsSubdir = detected?.subdir || null;
 
-    if (skillsSubdir) {
-      console.log(`found: ${detected.label}/`);
-      console.log(`Sparse-cloning ${url} (${skillsSubdir}/ only)...`);
-      cloneOk = sparseClone(url, dest, skillsSubdir);
-      if (!cloneOk) {
-        console.log('Sparse-checkout failed, falling back to full clone...');
-        fs.rmSync(dest, { recursive: true, force: true });
-        cloneOk = fullClone(url, dest);
-        skillsSubdir = null;
-      }
-    } else {
-      console.log(`no subdir found, cloning root...`);
-      cloneOk = fullClone(url, dest);
+    if (!skillsSubdir) {
+      throw new Error(
+        `No skill subdirectory found in ${ownerRepo}.\n` +
+        `Expected one of: ${SKILL_DIRS.join(', ')}\n` +
+        `Or any subfolder with .md files.\n` +
+        `Visit https://github.com/${ownerRepo} to check the repo structure.`
+      );
+    }
+
+    console.log(`found: ${detected.label}/`);
+    console.log(`Sparse-cloning ${url} (${skillsSubdir}/ only)...`);
+    cloneOk = sparseClone(url, dest, skillsSubdir);
+    if (!cloneOk) {
+      fs.rmSync(dest, { recursive: true, force: true });
+      throw new Error(`Sparse-checkout failed for ${url}`);
     }
 
     if (!cloneOk) throw new Error(`Clone failed for ${url}`);
