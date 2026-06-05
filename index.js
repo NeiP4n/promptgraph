@@ -208,35 +208,38 @@ if (args[0] === 'marketplace') {
 
   if (skills?.error) { error(skills.error); process.exit(1); }
 
-  // Build installed set: bundle IDs from config sources + skill IDs from DB
+  // Build installed set — source of truth is the FILESYSTEM, not DB/config
   const installedSet = new Set();
   try {
     const cfg = _lcMkt();
     const db = _getDbMkt();
-
-    // Collect installed skill IDs from DB
-    const dbSkillIds = new Set(db.prepare('SELECT id FROM skills').all().map(r => r.id));
-
-    // Build set of cloned repo names from config sources (exact: github:owner-repo)
-    const githubSources = new Set(
-      cfg.sources.filter(s => s.source.startsWith('github:')).map(s => s.source.replace('github:', '').toLowerCase())
-    );
+    const { SKILLS_STORE_DIR } = await import('./config.js');
+    const githubDir = path.join(SKILLS_STORE_DIR, 'github');
 
     for (const b of (Array.isArray(bundles) ? bundles : [])) {
       if (b.repo_url) {
-        // repo_url = "owner/repo" → cloned as "owner-repo" in github: source
-        const clonedName = b.repo_url.replace('/', '-').toLowerCase();
-        if (githubSources.has(clonedName)) installedSet.add(b.id);
+        // Check actual cloned directory exists and has files
+        const owner = b.repo_url.split('/')[0];
+        const repo  = b.repo_url.split('/')[1];
+        const clonedName = `${owner}-${repo}`;
+        const clonedDir  = path.join(githubDir, clonedName);
+        const dirExists  = fs.existsSync(clonedDir) &&
+          fs.readdirSync(clonedDir).length > 0; // not empty
+        if (dirExists) installedSet.add(b.id);
       } else if (Array.isArray(b.skills)) {
-        // skill-list bundle: installed if ALL skills are in DB
-        if (b.skills.length > 0 && b.skills.every(sid => dbSkillIds.has(sid))) {
-          installedSet.add(b.id);
-        }
+        // skill-list bundle: check files exist on disk via DB path column
+        const allOnDisk = b.skills.every(sid => {
+          const row = db.prepare('SELECT path FROM skills WHERE id = ?').get(sid);
+          return row && fs.existsSync(row.path);
+        });
+        if (b.skills.length > 0 && allOnDisk) installedSet.add(b.id);
       }
     }
 
-    // Individual skills
-    for (const id of dbSkillIds) installedSet.add(id);
+    // Individual marketplace skills — check file exists on disk
+    for (const row of db.prepare('SELECT id, path FROM skills WHERE source = ?').all('marketplace')) {
+      if (fs.existsSync(row.path)) installedSet.add(row.id);
+    }
   } catch {}
 
   const { runTUI } = await import('./tui.js');
