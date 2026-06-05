@@ -1,54 +1,59 @@
 # PromptGraph
 
-**Stop burning 50,000 tokens on skills you won't use.**
+**Semantic skill router and marketplace for Claude Code.**
 
-PromptGraph is an MCP server that gives Claude Code a semantic skill index — vector search, skill graph, and a community marketplace. Instead of cramming every `.md` into your system prompt, Claude finds and loads only the one skill it needs.
+Instead of loading every `.md` skill into your context, Claude calls `pg_search` and loads only the one skill it needs.
 
 [![npm](https://img.shields.io/npm/v/promptgraph-mcp?color=7C3AED&label=npm)](https://www.npmjs.com/package/promptgraph-mcp)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## Why
-
-Claude Code loads skill metadata from `~/.claude/commands/` each session. With 40+ skills that's thousands of tokens in routing overhead before you say a word. More importantly, when Claude loads and executes a full skill file (typically 1,000–5,000 tokens each), the cost multiplies fast.
-
-PromptGraph replaces that with one tiny router skill (`~150 tokens`) and a local vector index. Claude calls `pg_search` → gets the right skill path + a content snippet → reads only that file when needed.
+## How it works
 
 ```
-Before:  route across all 40 skills  →  40 × read overhead
-After:   1 pg_search call + snippet  →  read only what you need
+pg_search("refactor without breaking tests")
+  → embed query (BGE-Small-EN, 384-dim)
+  → flat cosine similarity over in-memory index
+  → return top skill path + snippet
+  → Claude reads only that file
 ```
+
+**Index:** SQLite + Float32 BLOB embeddings, flat cosine search in-memory.
+No external vector DB, no API key, no cloud.
+
+**File watcher:** `chokidar` detects `.md` changes and reindexes automatically (MCP server mode only).
 
 ---
 
-## Features
+## Benchmarks (measured on real hardware)
 
-- 🔍 **Semantic search** — finds skills by meaning, not just keywords (HNSW, O(log N))
-- 📦 **Marketplace** — browse and install community skills with one command
-- 🧩 **Skill bundles** — install curated packs (e.g. `engineering-essentials`)
-- 🔗 **Dependency graph** — tracks which skills call other skills (`pg_callers`, `pg_impact`)
-- ⚡ **Local embeddings** — `fastembed` BGE-Small-EN, 23 MB, no API key needed
-- 👁️ **File watcher** — auto-reindexes when you add or edit skills
-- 🛡️ **Validator** — blocks malicious/junk skills before they reach your machine
-- 🌐 **MCP-native** — works with Claude Code, Claude Desktop, Cline, OpenCode, Cursor, Windsurf, and any MCP client
+| Operation | Result |
+|---|---|
+| 88 new skills indexed (first time, cold ONNX) | **49.5 s** |
+| 88 skills reindexed (unchanged, hash match) | **< 1 s** |
+| `pg reindex --fast` (3000 files, keyword only) | **~30 s** |
+| `pg reindex` full embed (3000 files) | **~30 min** |
+| Semantic search query | **< 50 ms** |
+| Model size (BGE-Small-EN-v1.5, one-time download) | **23 MB** |
+| Embedding dimensions | **384** |
+| Max chunks per skill | **2** |
+| Embedding batch size | **256** |
+
+> ONNX model initialization (~2–3 min) happens once on first use and is cached in `~/.claude/.promptgraph/model-cache/`.
 
 ---
 
 ## Quick Start
 
 ```bash
-# one-time global install (recommended — faster than npx every time)
 npm install -g promptgraph-mcp@latest
 pg init
-
-# or without installing
-npx promptgraph-mcp init
 ```
 
-`init` downloads the embedding model (~23 MB, once), indexes your skills, and prints the config to paste into `settings.json`.
+`pg init` downloads the model (~23 MB, once), indexes your local skills, and prints the config snippet.
 
-### Add to Claude Code (`~/.claude/settings.json`)
+### Claude Code (`~/.claude/settings.json`)
 
 ```json
 {
@@ -61,7 +66,11 @@ npx promptgraph-mcp init
 }
 ```
 
-### Add to OpenCode (`~/.config/opencode/opencode.json`)
+### Claude Desktop / Cursor / Windsurf / Cline
+
+Same config — any MCP-compatible client works.
+
+### OpenCode (`~/.config/opencode/opencode.json`)
 
 ```json
 {
@@ -75,112 +84,104 @@ npx promptgraph-mcp init
 }
 ```
 
-> `pg setup` auto-detects OpenCode and writes this config for you.
-
-### Move your skills out of `commands/`
-
-```bash
-mkdir -p ~/.claude/skills-store
-mv ~/.claude/commands/*.md ~/.claude/skills-store/
-mv ~/.claude/skills-store/pg.md ~/.claude/commands/   # keep only the router
-```
-
----
-
-## Marketplace
-
-Browse and install community skills without leaving your terminal:
-
-```bash
-pg marketplace        # browse skills
-pg marketplace bundles  # browse bundles
-```
-
-Or ask Claude directly:
-
-```
-install pg-a1b2c3          # by code
-install systematic-debugging  # by name
-```
-
-**Publish your own skill:**
-
-```bash
-pg publish ~/.claude/skills-store/my-skill.md
-```
-
-> Skills are validated automatically — dangerous patterns, prompt injection, and junk are rejected by CI before they enter the registry.
+> `pg setup` auto-detects installed clients and writes config automatically.
 
 ---
 
 ## CLI
 
 ```bash
-pg init             # first-time setup
-pg reindex          # re-index all skills
-pg search "deploy"  # search from terminal
-pg list             # list all indexed skills
-pg marketplace      # browse registry
-pg import owner/repo   # import any GitHub repo full of .md skills
-pg validate my-skill.md
-pg doctor           # clean up orphaned data
+pg init                    # first-time setup
+pg status                  # show indexed sources, repos, installed bundles
+pg reindex                 # full reindex (semantic search, slow)
+pg reindex --fast          # keyword-only reindex (~30s, no embeddings)
+pg search "deploy"         # search from terminal
+pg import owner/repo       # clone and index any GitHub repo of .md skills
+pg marketplace             # browse skills by category
+pg marketplace bundles     # browse curated bundles
+pg bundle install <id>     # install a bundle
+pg validate my-skill.md    # validate before publishing
+pg doctor                  # clean orphaned DB rows
+pg update                  # update to latest version
 ```
 
 ---
 
-## MCP Tools (used by Claude automatically)
+## Marketplace
+
+```bash
+pg marketplace             # 🛠 Engineering  💻 Coding  🤖 AI Tools  🔒 Security  🎨 Creative
+pg marketplace Engineering # filter by category
+pg marketplace bundles     # install whole repos as skill bundles
+```
+
+**Bundles** install an entire GitHub repo as a skill source — auto-detects `skills/`, `commands/`, `prompts/` subdirectory.
+
+Example:
+```bash
+pg bundle install elementalsouls-claude-bughunter   # 88 security skills from GitHub
+pg bundle install engineering-essentials            # 4 curated workflow skills
+```
+
+**Publish your skill** (auto-validated, no manual review):
+
+Open an issue on [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) with label `skill-submission`. The bot fetches, validates, commits, and closes the issue automatically.
+
+Anti-spam checks: min 200 chars, 2+ headers, code/bullets required, prompt injection detection, duplicate URL/description check, 3 submissions per user per 24h.
+
+---
+
+## MCP Tools
+
+Claude uses these automatically when the MCP server is running:
 
 | Tool | What it does |
 |---|---|
-| `pg_search` | Semantic skill search by task description |
+| `pg_search` | Semantic search by task description |
 | `pg_list` | List all indexed skills |
 | `pg_context` | Full skill details + callers/callees |
 | `pg_callers` | Which skills reference this one |
 | `pg_callees` | Which skills this one calls |
 | `pg_impact` | What breaks if this skill changes |
 | `pg_marketplace_browse` | Browse community registry |
-| `pg_marketplace_install` | Install a skill by code, id, or name |
+| `pg_marketplace_install` | Install a skill by code or name |
 | `pg_bundle_browse` | Browse skill bundles |
 | `pg_bundle_install` | Install a bundle |
-| `pg_top_rated` | Highest-rated local skills |
-| `pg_rate` | Rate a skill (success/fail) |
+| `pg_top_rated` | Highest-rated skills |
+| `pg_rate` | Rate a skill after use |
 
 ---
 
-## Token Savings
+## Search modes
 
-| | Before PromptGraph | After PromptGraph |
+| Mode | How | Quality |
 |---|---|---|
-| Skills in system prompt | All 40+ every session | 1 router (~150 tokens) |
-| Tokens per session | 20,000 – 50,000 | ~300 + 1 skill on demand |
-| Skills you can have | ~30 before it gets painful | Unlimited |
+| After `pg reindex` | Cosine similarity on 384-dim BGE vectors | Semantic — finds by meaning |
+| After `pg reindex --fast` | SQLite FTS5 BM25 | Keyword — exact word match |
+
+Search falls back to FTS5 automatically if no embeddings exist.
 
 ---
 
-## How It Works
+## Skill filtering
 
-```
-pg_search("refactor without breaking tests")
-  → embed query  →  HNSW ANN search  →  rank by cosine + rating boost
-  → return top skill path
-  → Claude reads only that file
-```
-
-Embeddings are stored in SQLite. The HNSW index ([vectra](https://github.com/Stevenic/vectra)) keeps search sub-millisecond even at thousands of skills. Skills are re-indexed automatically via `chokidar` file watcher.
+When importing a GitHub repo, PromptGraph:
+1. Looks for a dedicated subdir (`skills/`, `commands/`, `prompts/`, `agents/`, `templates/`, etc.) — indexes only that dir if found with 2+ `.md` files
+2. Falls back to repo root with content quality filter: min 150 chars, 2+ headers, must have code blocks or bullet points, skips readme/changelog/license/docs
 
 ---
 
 ## Requirements
 
 - Node.js 18+
-- Claude Code or Claude Desktop (any MCP-compatible client)
+- Any MCP-compatible client (Claude Code, Claude Desktop, Cline, OpenCode, Cursor, Windsurf…)
 
 ---
 
 ## Related
 
-- 📋 [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) — community skill registry
+- 📋 [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) — community skill registry and auto-publish bot
 
 ---
 
-*Built with [Claude](https://claude.com/claude-code) by Anthropic.*
+*Built with [Claude Code](https://claude.com/claude-code).*
