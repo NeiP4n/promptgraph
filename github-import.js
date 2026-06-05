@@ -4,9 +4,24 @@ import os from 'os';
 import fs from 'fs';
 import { globSync } from 'glob';
 import { indexAll } from './indexer.js';
-import { loadConfig, saveConfig } from './config.js';
+import { loadConfig, saveConfig, SKILLS_STORE_DIR } from './config.js';
 
-const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills-store');
+// Directories likely to contain skills — checked in priority order
+const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', 'slash-commands', 'custom-commands', 'templates'];
+
+// Find the best subdirectory to index in the cloned repo.
+// Returns the subdir path if a known skills dir exists with 2+ .md files,
+// otherwise returns the repo root (full scan with isSkillFile filtering).
+function detectSkillsDir(repoRoot) {
+  for (const dir of SKILL_DIRS) {
+    const candidate = path.join(repoRoot, dir);
+    if (fs.existsSync(candidate)) {
+      const files = globSync(`${candidate}/**/*.md`);
+      if (files.length >= 2) return { dir: candidate, auto: true, label: dir };
+    }
+  }
+  return { dir: repoRoot, auto: false, label: '(root)' };
+}
 
 export async function importFromGitHub(repoUrl) {
   if (!repoUrl) {
@@ -16,7 +31,7 @@ export async function importFromGitHub(repoUrl) {
 
   const url = repoUrl.startsWith('http') ? repoUrl : `https://github.com/${repoUrl}`;
   const repoName = url.split('/').slice(-2).join('-').replace('.git', '');
-  const dest = path.join(SKILLS_DIR, 'github', repoName);
+  const dest = path.join(SKILLS_STORE_DIR, 'github', repoName);
 
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
@@ -30,23 +45,31 @@ export async function importFromGitHub(repoUrl) {
     if (cloneResult.status !== 0) throw new Error(`git clone failed for ${url}`);
   }
 
-  const mdFiles = globSync(`${dest}/**/*.md`);
-  console.log(`Found ${mdFiles.length} .md files`);
+  const { dir: skillsDir, auto, label } = detectSkillsDir(dest);
+  const mdFiles = globSync(`${skillsDir}/**/*.md`);
 
-  if (mdFiles.length < 2) {
-    console.warn('Warning: repo has fewer than 2 .md files — may be empty');
+  if (auto) {
+    console.log(`Auto-detected skills directory: ${label}/ (${mdFiles.length} .md files)`);
+  } else {
+    console.log(`No skills/ dir found — scanning root (${mdFiles.length} .md files, non-skill files will be filtered)`);
+  }
+
+  if (mdFiles.length < 1) {
+    console.warn('Warning: no .md files found');
   }
 
   const config = loadConfig();
-  // Per-repo source so two repos with the same skill name don't overwrite each other
   const repoSource = `github:${repoName}`;
-  if (!config.sources.find(s => s.dir === dest)) {
-    config.sources.push({ dir: dest, source: repoSource });
+  if (!config.sources.find(s => s.dir === skillsDir)) {
+    // Remove any old entry pointing at the full repo root if we now have a subdir
+    const oldIdx = config.sources.findIndex(s => s.source === repoSource);
+    if (oldIdx !== -1) config.sources.splice(oldIdx, 1);
+    config.sources.push({ dir: skillsDir, source: repoSource });
     saveConfig(config);
-    console.log(`Added ${repoSource} to config`);
+    console.log(`Indexing from: ${skillsDir}`);
   }
 
   console.log('\nReindexing...');
   await indexAll();
-  console.log(`Done! Imported ${mdFiles.length} files from ${repoName}`);
+  console.log(`Done! Imported from ${repoName}/${label}`);
 }
