@@ -81,9 +81,9 @@ function sparseClone(url, dest, subdir) {
   if (git(['init'], dest, 'pipe').status !== 0) return false;
   if (git(['remote', 'add', 'origin', url], dest, 'pipe').status !== 0) return false;
 
-  // 2. sparse-checkout config
-  git(['sparse-checkout', 'init', '--cone'], dest, 'pipe');
-  git(['sparse-checkout', 'set', subdir], dest, 'pipe');
+  // 2. sparse-checkout — non-cone mode with *.md glob
+  git(['sparse-checkout', 'init'], dest, 'pipe');
+  git(['sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], dest, 'pipe');
 
   // 3. fetch + checkout (depth=1, skip large blobs)
   const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
@@ -134,7 +134,7 @@ function sparseUpdate(dest, subdir) {
   if (fetch.status !== 0) return false;
 
   // Ensure sparse-checkout still set correctly
-  git(['sparse-checkout', 'set', subdir], dest, 'pipe');
+  git(['sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], dest, 'pipe');
 
   for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
     const r = git(['reset', '--hard', ref], dest, 'pipe');
@@ -143,8 +143,7 @@ function sparseUpdate(dest, subdir) {
   return false;
 }
 
-// Fallback: full clone (when no subdir found)
-// --filter=blob:none skips large binaries (images, zips) — only fetches text files
+// Fallback: clone root but only checkout .md files
 function fullClone(url, dest) {
   if (fs.existsSync(dest)) {
     const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
@@ -154,7 +153,19 @@ function fullClone(url, dest) {
     }
     return false;
   }
-  return git(['clone', '--depth=1', '--filter=blob:none', url, dest]).status === 0;
+  // init + sparse *.md + fetch + checkout
+  fs.mkdirSync(dest, { recursive: true });
+  if (git(['init'], dest, 'pipe').status !== 0) return false;
+  if (git(['remote', 'add', 'origin', url], dest, 'pipe').status !== 0) return false;
+  git(['sparse-checkout', 'init'], dest, 'pipe');
+  git(['sparse-checkout', 'set', '--no-cone', '*.md', '**/*.md'], dest, 'pipe');
+  const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
+  if (fetch.status !== 0) return false;
+  for (const branch of ['FETCH_HEAD', 'main', 'master']) {
+    const r = git(['checkout', branch], dest, 'pipe');
+    if (r.status === 0) return true;
+  }
+  return false;
 }
 
 // After clone: detect actual skills dir on disk
@@ -213,7 +224,6 @@ export async function importFromGitHub(repoUrl) {
     } else {
       console.log(`no subdir found, cloning root...`);
       cloneOk = fullClone(url, dest);
-      if (cloneOk) cleanupRepoRoot(dest);
     }
 
     if (!cloneOk) throw new Error(`Clone failed for ${url}`);
