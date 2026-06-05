@@ -12,7 +12,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h']);
 
 function showHelp() {
   console.log(
@@ -31,6 +31,7 @@ function showHelp() {
     ['marketplace [page]',  'Browse the community skill registry'],
     ['validate <file.md>',  'Validate a skill before publishing'],
     ['doctor',              'Clean orphaned chunks/edges/ratings'],
+    ['update',              'Update to the latest version from npm'],
     ['setup <platform>',    'Register MCP in platform config'],
     ['help',                'Show this help'],
   ];
@@ -306,6 +307,43 @@ if (args[0] === 'init') {
       { padding: 1, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
     )
   );
+  process.exit(0);
+}
+
+if (args[0] === 'update') {
+  const { spawnSync } = await import('child_process');
+  const { createRequire } = await import('module');
+  const req = createRequire(import.meta.url);
+  const currentVersion = req('./package.json').version;
+
+  // Check latest version on npm
+  const spin = (await import('./cli.js')).spinner('Checking latest version...');
+  spin.start();
+  let latest = null;
+  try {
+    const r = spawnSync('npm', ['view', 'promptgraph-mcp', 'version'], { encoding: 'utf8' });
+    latest = r.stdout?.trim();
+  } catch {}
+  spin.stop();
+
+  if (!latest) { error('Could not reach npm registry. Check your network.'); process.exit(1); }
+  if (latest === currentVersion) {
+    success(`Already on latest version ${chalk.white.bold('v' + currentVersion)}`);
+    process.exit(0);
+  }
+
+  info(`Current: ${chalk.gray('v' + currentVersion)}  →  Latest: ${chalk.white.bold('v' + latest)}`);
+  const updateSpin = (await import('./cli.js')).spinner(`Installing promptgraph-mcp@${latest}...`);
+  updateSpin.start();
+  const result = spawnSync('npm', ['install', '-g', `promptgraph-mcp@${latest}`], { encoding: 'utf8', stdio: 'pipe' });
+  updateSpin.stop();
+
+  if (result.status !== 0) {
+    error('Update failed:');
+    console.log(chalk.gray(result.stderr || result.stdout));
+    process.exit(1);
+  }
+  success(`Updated to ${chalk.white.bold('v' + latest)}`);
   process.exit(0);
 }
 
