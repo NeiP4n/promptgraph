@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { spawnSync } from 'child_process';
 
 const args = process.argv.slice(2);
 // argv[1] is the resolved index.js path (esp. on Windows global installs),
@@ -267,8 +268,10 @@ if (args[0] === 'bundle') {
     process.exit(0);
   }
   if (args[1] === 'add-repo') {
-    if (!args[2] || !args[2].includes('/')) { error('Usage: pg bundle add-repo <owner/repo>'); process.exit(1); }
-    const repo = args[2].replace('https://github.com/', '').replace('.git', '');
+    const doPush = args[args.length - 1] === '--push';
+    const repoArg = doPush ? args[2] : args[2];
+    if (!repoArg || !repoArg.includes('/')) { error('Usage: pg bundle add-repo <owner/repo> [--push]'); process.exit(1); }
+    const repo = repoArg.replace('https://github.com/', '').replace('.git', '');
     const name = repo.split('/')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const id = repo.replace('/', '-').toLowerCase();
     const bundle = {
@@ -278,21 +281,42 @@ if (args[0] === 'bundle') {
       stars: 0
     };
     const json = JSON.stringify(bundle, null, 2);
-    const tmp = path.join(os.tmpdir(), `pg-bundle-${id}.json`);
-    fs.writeFileSync(tmp, json);
-    const { publishBundle } = await import('./marketplace.js');
-    const result = await publishBundle(tmp);
-    fs.unlinkSync(tmp);
-    if (result?.error) { error(result.error); process.exit(1); }
-    if (result.gh_not_installed) {
-      console.log('\n' + result.instructions);
-      console.log(chalk.gray('\nBundle JSON:\n') + chalk.white(json));
+
+    if (doPush) {
+      const registryDir = path.join(os.tmpdir(), 'pg-push-registry');
+      if (fs.existsSync(registryDir)) {
+        spawnSync('git', ['-C', registryDir, 'pull'], { stdio: 'inherit' });
+      } else {
+        spawnSync('git', ['clone', 'https://github.com/NeiP4n/promptgraph-registry.git', registryDir], { stdio: 'inherit' });
+      }
+      const regFile = path.join(registryDir, 'registry.json');
+      const reg = JSON.parse(fs.readFileSync(regFile, 'utf8'));
+      if (reg.bundles.find(b => b.id === id)) { error(`Bundle "${id}" already exists`); process.exit(1); }
+      reg.bundles.push(bundle);
+      reg.updated = new Date().toISOString().slice(0, 10);
+      fs.writeFileSync(regFile, JSON.stringify(reg, null, 2) + '\n');
+      fs.writeFileSync(path.join(registryDir, 'bundles', `${id}.json`), json + '\n');
+      spawnSync('git', ['-C', registryDir, 'add', '-A'], { stdio: 'inherit' });
+      spawnSync('git', ['-C', registryDir, 'commit', '-m', `bundle: ${name} (${repo})`], { stdio: 'inherit' });
+      spawnSync('git', ['-C', registryDir, 'push'], { stdio: 'inherit' });
+      success(`Bundle "${id}" pushed to registry`);
     } else {
-      success(`Bundle proposed! Submit: ${result.submit_url}`);
+      const tmp = path.join(os.tmpdir(), `pg-bundle-${id}.json`);
+      fs.writeFileSync(tmp, json);
+      const { publishBundle } = await import('./marketplace.js');
+      const result = await publishBundle(tmp);
+      fs.unlinkSync(tmp);
+      if (result?.error) { error(result.error); process.exit(1); }
+      if (result.gh_not_installed) {
+        console.log('\n' + result.instructions);
+        console.log(chalk.gray('\nBundle JSON:\n') + chalk.white(json));
+      } else {
+        success(`Bundle proposed! Submit: ${result.submit_url}`);
+      }
     }
     process.exit(0);
   }
-  error('Usage: pg bundle install <id>  |  pg bundle add-repo <owner/repo>');
+  error('Usage: pg bundle install <id>  |  pg bundle add-repo <owner/repo> [--push]');
   process.exit(1);
 }
 
