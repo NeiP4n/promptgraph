@@ -392,7 +392,8 @@ if (args[0] === 'update') {
   spin.start();
   let latest = null;
   try {
-    const r = spawnSync('npm', ['view', 'promptgraph-mcp', 'version'], { encoding: 'utf8' });
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const r = spawnSync(npmCmd, ['view', 'promptgraph-mcp', 'version'], { encoding: 'utf8' });
     latest = r.stdout?.trim();
   } catch {}
   spin.stop();
