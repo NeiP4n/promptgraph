@@ -5,11 +5,20 @@ import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { getDb } from './db.js';
-import { validateSkill } from './validator.js';
+import { validateSkill, validateBundle } from './validator.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
+
+// Convert GitHub blob URL → raw URL
+// https://github.com/owner/repo/blob/branch/path/file.md
+// → https://raw.githubusercontent.com/owner/repo/branch/path/file.md
+function githubToRaw(url) {
+  const m = url.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)\/blob\/(.+)$/);
+  if (m) return `https://raw.githubusercontent.com/${m[1]}/${m[2]}`;
+  return null; // already raw or not a github URL
+}
 
 const _require = createRequire(import.meta.url);
 const PKG_VERSION = (() => { try { return _require('./package.json').version; } catch { return '1.x'; } })();
@@ -94,8 +103,37 @@ export async function browseMarketplace(topK = 20) {
   }
 }
 
+export async function installSkillFromUrl(url) {
+  try {
+    const rawUrl = githubToRaw(url) || url;
+    const content = await fetchText(rawUrl);
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    ensureMarketplaceSource();
+
+    // derive filename from URL
+    const urlName = rawUrl.split('/').pop().replace(/[^a-z0-9-_.]/gi, '-');
+    const dest = path.join(SKILLS_DIR, urlName.endsWith('.md') ? urlName : urlName + '.md');
+    const tmpPath = dest + '.tmp';
+    fs.writeFileSync(tmpPath, content);
+    const validation = validateSkill(tmpPath);
+    if (!validation.ok) {
+      fs.unlinkSync(tmpPath);
+      return { error: 'Downloaded skill failed validation', issues: validation.errors };
+    }
+    fs.renameSync(tmpPath, dest);
+    return { success: true, path: dest, url: rawUrl };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 export async function installSkill(query) {
   try {
+    // GitHub URL or raw URL → direct install
+    if (query.startsWith('http://') || query.startsWith('https://')) {
+      return installSkillFromUrl(query);
+    }
+
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
     const q = String(query).trim().toLowerCase();
@@ -110,7 +148,7 @@ export async function installSkill(query) {
         (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q
       );
       if (bundle) return { error: `"${query}" is a bundle. Use pg_bundle_install("${bundle.id}") instead.` };
-      return { error: `No skill matching "${query}" (try a code like pg-xxxxxx, an id, or a name)` };
+      return { error: `No skill matching "${query}" (try a code, id, name, or GitHub URL)` };
     }
     if (!skill.raw_url) return { error: `Skill "${skill.id}" has no download URL` };
     const skillId = skill.id;
@@ -227,6 +265,49 @@ export async function publishSkill(filePath) {
       message: `Published! Submit to registry: https://github.com/NeiP4n/promptgraph-registry/issues/new`,
     };
   } catch {
+    return { error: 'gh CLI not found. Install from: https://cli.github.com' };
+  }
+}
+
+export async function publishBundle(bundleDef) {
+  // bundleDef: { id, name, description, skills: [...], tags: [...] }
+  // OR a path to a .json file
+  let def = bundleDef;
+  if (typeof bundleDef === 'string') {
+    if (!fs.existsSync(bundleDef)) return { error: `File not found: ${bundleDef}` };
+    try { def = JSON.parse(fs.readFileSync(bundleDef, 'utf8')); }
+    catch (e) { return { error: `Invalid JSON: ${e.message}` }; }
+  }
+
+  const validation = validateBundle(def);
+  if (!validation.ok) {
+    return { error: 'Bundle validation failed', issues: validation.errors, warnings: validation.warnings };
+  }
+
+  const bundleJson = JSON.stringify(def, null, 2);
+  const tmpFile = path.join(PROMPTGRAPH_DIR, `bundle-${def.id}.json`);
+  fs.mkdirSync(PROMPTGRAPH_DIR, { recursive: true });
+  fs.writeFileSync(tmpFile, bundleJson);
+
+  try {
+    const result = spawnSync(
+      'gh',
+      ['gist', 'create', tmpFile, '--desc', `PromptGraph bundle: ${def.name}`, '--public'],
+      { encoding: 'utf8' }
+    );
+    fs.unlinkSync(tmpFile);
+    if (result.status !== 0) {
+      return { error: result.stderr?.trim() || 'gh CLI error. Run: gh auth login' };
+    }
+    const issueUrl = `https://github.com/NeiP4n/promptgraph-registry/issues/new?title=Bundle%3A+${encodeURIComponent(def.name)}&body=Gist%3A+${encodeURIComponent(result.stdout.trim())}`;
+    return {
+      success: true,
+      gist_url: result.stdout.trim(),
+      submit_url: issueUrl,
+      message: `Bundle published! Open this link to submit to registry:\n${issueUrl}`,
+    };
+  } catch {
+    fs.unlinkSync(tmpFile);
     return { error: 'gh CLI not found. Install from: https://cli.github.com' };
   }
 }

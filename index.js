@@ -116,8 +116,14 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
     console.log();
   });
 
-  console.log('  ' + chalk.gray('─'.repeat(54)));
-  console.log('  ' + chalk.gray('Installs all skills in the set. Run ') + chalk.cyan(`${bin} marketplace`) + chalk.gray(' for single skills.'));
+  console.log(
+    boxen(
+      chalk.dim('install bundle ') + chalk.white('install bundle ') + chalk.hex('#A78BFA')('engineering-essentials') + '\n' +
+      chalk.dim('browse skills  ') + chalk.cyan(`${bin} marketplace`) + '\n' +
+      chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>'),
+      { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderStyle: 'round', borderColor: '#4B5563', dimBorder: true }
+    )
+  );
   console.log();
   process.exit(0);
 }
@@ -190,10 +196,21 @@ if (args[0] === 'marketplace') {
     if (page > 1) nav.push(chalk.dim('‹ ') + chalk.cyan(`${bin} marketplace ${page - 1}`));
     if (page < totalPages) nav.push(chalk.cyan(`${bin} marketplace ${page + 1}`) + chalk.dim(' ›'));
     console.log('  ' + nav.join('     '));
+    console.log();
   }
-  console.log('  ' + chalk.dim('install   ') + chalk.cyan('tell your AI:') + ' ' + chalk.white('install ') + chalk.hex('#A78BFA')(slice[0].code || slice[0].id));
-  console.log('  ' + chalk.dim('bundles   ') + chalk.cyan(`${bin} marketplace bundles`));
-  console.log('  ' + chalk.dim('publish   ') + chalk.cyan('tell your AI:') + ' ' + chalk.white('/pg-publish <file>'));
+
+  const exCode = slice[0]?.code || slice[0]?.id || 'pg-xxxxxx';
+  console.log(
+    boxen(
+      chalk.dim('install skill  ') + chalk.white('install ') + chalk.hex('#A78BFA')(exCode) + '\n' +
+      chalk.dim('install bundle ') + chalk.white('install bundle ') + chalk.hex('#A78BFA')('engineering-essentials') + '\n' +
+      chalk.dim('from GitHub    ') + chalk.white('install ') + chalk.hex('#A78BFA')('https://github.com/owner/repo/blob/main/skill.md') + '\n' +
+      chalk.dim('publish skill  ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<file.md>') + '\n' +
+      chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>') + '\n' +
+      chalk.dim('view bundles   ') + chalk.cyan(`${bin} marketplace bundles`),
+      { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderStyle: 'round', borderColor: '#4B5563', dimBorder: true }
+    )
+  );
   console.log();
   process.exit(0);
 }
@@ -296,7 +313,7 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelco
 const { search, getContext, getCallers, getCallees, getImpact, listAll } = await import('./search.js');
 const { loadConfig: _loadConfig, saveConfig: _saveConfig } = await import('./config.js');
 const { startWatcher } = await import('./watcher.js');
-const { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail, browseBundles, installBundle } = await import('./marketplace.js');
+const { browseMarketplace, installSkill, installSkillFromUrl, publishSkill, publishBundle, getTopRated, recordUse, recordSuccess, recordFail, browseBundles, installBundle } = await import('./marketplace.js');
 
 const server = new Server(
   { name: 'promptgraph', version: '1.0.0' },
@@ -431,6 +448,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['action'],
       },
     },
+    {
+      name: 'pg_install_url',
+      description: 'Install a skill directly from a GitHub URL or raw URL. Validates before saving.',
+      inputSchema: {
+        type: 'object',
+        properties: { url: { type: 'string', description: 'GitHub blob URL or raw URL of a .md skill file' } },
+        required: ['url'],
+      },
+    },
+    {
+      name: 'pg_bundle_publish',
+      description: 'Publish a bundle definition to GitHub Gist and get a registry submission link. Pass a JSON object or path to a .json file.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          bundle: {
+            description: 'Bundle definition object { id, name, description, skills[], tags[] } OR file path to .json',
+            oneOf: [
+              { type: 'object' },
+              { type: 'string' },
+            ],
+          },
+        },
+        required: ['bundle'],
+      },
+    },
   ],
 }));
 
@@ -458,6 +501,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pg_marketplace_publish': result = await publishSkill(args.file_path); break;
       case 'pg_bundle_browse': result = await browseBundles(args.top_k || 20); break;
       case 'pg_bundle_install': result = await installBundle(args.bundle_id); break;
+      case 'pg_install_url': result = await installSkillFromUrl(args.url); break;
+      case 'pg_bundle_publish': result = await publishBundle(args.bundle); break;
       case 'pg_config': {
         const cfg = _loadConfig();
         if (args.action === 'get') {

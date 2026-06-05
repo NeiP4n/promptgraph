@@ -87,6 +87,47 @@ export function validateSkill(filePath) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
+const BUNDLE_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+export function validateBundle(def) {
+  const errors = [];
+  const warnings = [];
+
+  if (!def.id || typeof def.id !== 'string') {
+    errors.push('Missing required field: id');
+  } else if (!BUNDLE_ID_RE.test(def.id)) {
+    errors.push(`Invalid id "${def.id}". Use lowercase, digits, hyphens (2-64 chars).`);
+  }
+
+  if (!def.name || typeof def.name !== 'string' || def.name.trim().length < 3) {
+    errors.push('Missing or too short field: name (min 3 chars)');
+  }
+
+  if (!def.description || typeof def.description !== 'string' || def.description.trim().length < 15) {
+    errors.push('Missing or too short field: description (min 15 chars)');
+  }
+
+  if (!Array.isArray(def.skills) || def.skills.length < 2) {
+    errors.push('Field "skills" must be an array with at least 2 skill IDs');
+  } else {
+    for (const s of def.skills) {
+      if (typeof s !== 'string' || !BUNDLE_ID_RE.test(s)) {
+        errors.push(`Invalid skill id in bundle: "${s}"`);
+      }
+    }
+  }
+
+  if (def.tags && !Array.isArray(def.tags)) {
+    errors.push('Field "tags" must be an array of strings');
+  }
+
+  if (def.skills?.length > 20) {
+    warnings.push('Bundle has more than 20 skills — consider splitting into sub-bundles');
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
 // CLI: node validator.js <file>
 if (import.meta.url === `file://${process.argv[1]}`) {
   const file = process.argv[2];
