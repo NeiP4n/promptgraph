@@ -73,7 +73,7 @@ function filterItems(items, query, tab) {
 
 // ── render ────────────────────────────────────────────────────────────────────
 
-function render(state) {
+function render(state, installedSet = new Set()) {
   const { cols, rows } = termSize();
   const HEADER_ROWS = 5;
   const FOOTER_ROWS = 3;
@@ -222,7 +222,7 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
     state.items = filterItems(allItems, q ?? state.query, t ?? state.tab);
     if (state.cursor >= state.items.length) state.cursor = Math.max(0, state.items.length - 1);
     clampScroll(state);
-    render(state);
+    render(state, installedSet);
   }
 
   // Setup terminal
@@ -247,8 +247,8 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
   function setStatus(ok, msg) {
     state.status = { ok, msg };
     clearTimeout(statusTimer);
-    render(state);
-    statusTimer = setTimeout(() => { state.status = null; render(state); }, 3000);
+    render(state, installedSet);
+    statusTimer = setTimeout(() => { state.status = null; render(state, installedSet); }, 3000);
   }
 
   // Keypress handler
@@ -281,7 +281,7 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
 
     if (key.name === 'slash' || ch === '/') {
       state.searching = true;
-      render(state);
+      render(state, installedSet);
       return;
     }
 
@@ -297,33 +297,33 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
     if (key.name === 'up') {
       if (state.cursor > 0) state.cursor--;
       clampScroll(state);
-      render(state);
+      render(state, installedSet);
       return;
     }
 
     if (key.name === 'down') {
       if (state.cursor < state.items.length - 1) state.cursor++;
       clampScroll(state);
-      render(state);
+      render(state, installedSet);
       return;
     }
 
     if (key.name === 'pageup') {
       state.cursor = Math.max(0, state.cursor - 10);
       clampScroll(state);
-      render(state);
+      render(state, installedSet);
       return;
     }
 
     if (key.name === 'pagedown') {
       state.cursor = Math.min(state.items.length - 1, state.cursor + 10);
       clampScroll(state);
-      render(state);
+      render(state, installedSet);
       return;
     }
 
-    if (key.name === 'home') { state.cursor = 0; state.scroll = 0; render(state); return; }
-    if (key.name === 'end')  { state.cursor = state.items.length - 1; clampScroll(state); render(state); return; }
+    if (key.name === 'home') { state.cursor = 0; state.scroll = 0; render(state, installedSet); return; }
+    if (key.name === 'end')  { state.cursor = state.items.length - 1; clampScroll(state); render(state, installedSet); return; }
 
     if (key.name === 'return' || key.name === 'i') {
       const sel = state.items[state.cursor];
@@ -349,7 +349,7 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
   });
 
   // Resize handler
-  process.stdout.on('resize', () => { clampScroll(state); render(state); });
+  process.stdout.on('resize', () => { clampScroll(state); render(state, installedSet); });
 
   // Keep alive
   return new Promise(resolve => {
