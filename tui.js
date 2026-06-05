@@ -75,65 +75,85 @@ function filterItems(items, query, tab) {
 
 function render(state) {
   const { cols, rows } = termSize();
-  const HEADER_ROWS = 4;
+  const HEADER_ROWS = 5;
   const FOOTER_ROWS = 3;
   const LIST_ROWS = rows - HEADER_ROWS - FOOTER_ROWS;
+  const NAME_W = Math.max(20, Math.floor(cols * 0.28));
+  const DESC_W = cols - NAME_W - 28;
 
   const { items, cursor, scroll, query, searching, tab, status } = state;
+  const skills  = items.filter(i => i.type === 'skill').length;
+  const bundles = items.filter(i => i.type === 'bundle').length;
 
   write(HOME);
 
   // ── header ─────────────────────────────────────────────────────────────────
-  const title = purple.bold(' ◆ PromptGraph Marketplace ');
-  const tabs = ['all', 'skills', 'bundles'].map(t =>
-    t === tab ? cyan.bold(`[${t}]`) : dim(`[${t}]`)
-  ).join(' ');
-  write(truncate(title + ' '.repeat(4) + tabs, cols) + CLEAR_EOL + '\n');
+  // Row 1: title bar
+  const titleText = ' ◆ PromptGraph Marketplace';
+  const tabParts = ['all', 'skills', 'bundles'].map(t =>
+    t === tab
+      ? `\x1b[48;2;124;58;237m\x1b[97m  ${t.toUpperCase()}  \x1b[0m`
+      : dim(`  ${t}  `)
+  ).join('');
+  const titleLine = purple.bold(titleText) + '  ' + tabParts;
+  write(titleLine + CLEAR_EOL + '\n');
 
-  // search bar
-  const searchLabel = searching ? green('/ ') : dim('/ ');
-  const searchVal   = searching ? white(query) + (Math.floor(Date.now()/500)%2 ? '▌' : ' ') : dim(query || 'type / to search');
-  write(' ' + searchLabel + truncate(searchVal, cols - 4) + CLEAR_EOL + '\n');
+  // Row 2: counts
+  const countLine = dim('  ') +
+    (tab !== 'bundles' ? chalk.white(`${skills} skills`) + dim('  ') : '') +
+    (tab !== 'skills'  ? chalk.blue(`${bundles} bundles`) : '') +
+    (query ? dim('  · filter: ') + cyan(query) : '');
+  write(countLine + CLEAR_EOL + '\n');
 
-  const countLabel = dim(` ${items.length} items`);
-  const hint = dim(status ? (status.ok ? green(' ✓ ' + status.msg) : red(' ✗ ' + status.msg)) : '');
-  write(countLabel + hint + CLEAR_EOL + '\n');
+  // Row 3: search bar
+  const searchLabel = searching ? green('  / ') : dim('  / ');
+  const cursor_blink = Math.floor(Date.now() / 500) % 2 ? '▌' : ' ';
+  const searchVal = searching
+    ? white(query || '') + cursor_blink
+    : dim(query ? query : 'type / to search, Tab to switch view');
+  write(searchLabel + searchVal + CLEAR_EOL + '\n');
+
+  // Row 4: status / separator
+  if (status) {
+    const msg = status.ok ? green('  ✓  ' + status.msg) : red('  ✗  ' + status.msg);
+    write(msg + CLEAR_EOL + '\n');
+  } else {
+    write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
+  }
   write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
 
   // ── list ───────────────────────────────────────────────────────────────────
   let lastCat = null;
-  let lineIdx = 0;
   let rendered = 0;
 
   for (let i = scroll; i < items.length && rendered < LIST_ROWS; i++) {
     const item = items[i];
     const selected = i === cursor;
-    const bg = selected ? '\x1b[48;2;60;40;120m' : '';
-    const reset = selected ? '\x1b[0m' : '';
+    const bg    = selected ? '\x1b[48;2;55;35;110m' : '';
+    const reset = '\x1b[0m';
 
-    // category header
+    // category header (only when ungrouped / mixed)
     if (item.category !== lastCat) {
       if (rendered >= LIST_ROWS) break;
       const icon = CAT_ICON[item.category] || '📦';
-      write(bg + ' ' + purple(icon + '  ' + item.category) + reset + CLEAR_EOL + '\n');
+      write((selected ? bg : '') + '  ' + purple.bold(icon + '  ' + item.category) + reset + CLEAR_EOL + '\n');
       lastCat = item.category;
       rendered++;
+      if (rendered >= LIST_ROWS) break;
     }
 
-    if (rendered >= LIST_ROWS) break;
-
     // item row
-    const sel   = selected ? cyan('▶') : ' ';
+    const arrow = selected ? cyan('▶') : ' ';
     const type  = item.type === 'bundle' ? blue('⊞') : dim('·');
-    const name  = selected ? white.bold(item.name) : white(item.name);
-    const stars = item.stars > 0 ? yellow('★' + item.stars) : dim('★0');
+    const nameStr = truncate(item.name, NAME_W);
+    const namePad = nameStr.padEnd(NAME_W);
+    const nameCol = selected ? white.bold(namePad) : white(namePad);
     const extra = item.type === 'bundle'
-      ? (item.skillCount ? blue(item.skillCount + ' skills') : blue('GitHub'))
-      : (item.code ? dim(item.code) : '');
-    const desc  = dim(truncate(item.description, cols - 42));
+      ? (item.skillCount ? blue((item.skillCount + ' sk').padEnd(8)) : blue('GitHub  '))
+      : dim((item.code || '').padEnd(8));
+    const desc = dim(truncate(item.description, Math.max(10, DESC_W)));
 
-    const left  = ` ${sel} ${type} ${truncate(item.name, 28).padEnd(28)} ${stars}  ${extra.padEnd(12)}`;
-    write(bg + truncate(left, cols - desc.length - 2) + ' ' + desc + reset + CLEAR_EOL + '\n');
+    write(bg + `  ${arrow} ${type} ${nameCol}  ${extra}  ${desc}` + reset + CLEAR_EOL + '\n');
     rendered++;
   }
 
