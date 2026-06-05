@@ -85,7 +85,7 @@ function render(state, installedSet = new Set()) {
   const skills  = items.filter(i => i.type === 'skill').length;
   const bundles = items.filter(i => i.type === 'bundle').length;
 
-  write('\x1b[H\x1b[J'); // go home + clear to end (no flicker vs full CLEAR)
+  write('\x1b[H'); // go home — screen already cleared on init, just reposition
 
   // ── header ─────────────────────────────────────────────────────────────────
   // Row 1: title bar
@@ -225,7 +225,7 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
   }
 
   // Setup terminal
-  write(HIDE + CLEAR);
+  write(HIDE + CLEAR + '\x1b[H\x1b[J');
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
