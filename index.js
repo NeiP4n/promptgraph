@@ -384,16 +384,27 @@ if (args[0] === 'init') {
 if (args[0] === 'update') {
   const { spawnSync } = await import('child_process');
   const { createRequire } = await import('module');
+  const https = (await import('https')).default;
   const req = createRequire(import.meta.url);
   const currentVersion = req('./package.json').version;
 
-  // Check latest version on npm
+  // Check latest version via registry API (works behind proxies/VPN, no npm spawn needed)
   const spin = (await import('./cli.js')).spinner('Checking latest version...');
   spin.start();
   let latest = null;
   try {
-    const r = spawnSync('npm', ['view', 'promptgraph-mcp', 'version'], { encoding: 'utf8', shell: true });
-    latest = r.stdout?.trim();
+    latest = await new Promise((res, rej) => {
+      const r = https.get('https://registry.npmjs.org/promptgraph-mcp/latest',
+        { headers: { Accept: 'application/json' }, timeout: 8000 },
+        (resp) => {
+          let d = ''; resp.setEncoding('utf8');
+          resp.on('data', c => d += c);
+          resp.on('end', () => { try { res(JSON.parse(d).version); } catch { rej(new Error('bad response')); } });
+        }
+      );
+      r.on('error', rej);
+      r.on('timeout', () => { r.destroy(new Error('timeout')); });
+    });
   } catch {}
   spin.stop();
 
