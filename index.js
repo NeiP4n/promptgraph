@@ -113,8 +113,8 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
 
   bundles.forEach((b, i) => {
     const stars = b.stars > 0 ? chalk.yellow('★ ' + b.stars) : chalk.gray('★ 0');
-    const count = b.repo_url ? (b.skillCount || '?') : (b.skills?.length || 0);
-    console.log('  ' + chalk.gray((i + 1) + '.') + ' ' + chalk.white.bold(b.id) + '   ' + stars + chalk.gray('   ' + count + ' skills'));
+    const countLabel = b.repo_url ? chalk.blue('GitHub repo') : chalk.gray((b.skills?.length || 0) + ' skills');
+    console.log('  ' + chalk.gray((i + 1) + '.') + ' ' + chalk.white.bold(b.id) + '   ' + stars + '   ' + countLabel);
     console.log(wrapB(b.description, 64, '     '));
     console.log('     ' + chalk.gray('includes: ') + (b.repo_url ? chalk.blue(b.repo_url) : chalk.gray((b.skills || []).join(', '))));
     if (b.tags?.length) console.log('     ' + purple(b.tags.map(t => '#' + t).join(' ')));
