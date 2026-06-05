@@ -1,6 +1,7 @@
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import { spawnSync } from 'child_process';
 
 const HOME = os.homedir();
 
@@ -67,12 +68,49 @@ export const PLATFORMS = {
       writeJson(config.configPath, json);
     },
   },
+  'opencode': {
+    name: 'OpenCode',
+    configPath: getOpenCodeConfig(),
+    addMcp: (config) => {
+      const json = readJson(config.configPath) || {};
+      json.mcp = json.mcp || {};
+      json.mcp.promptgraph = {
+        type: 'local',
+        command: ['npx', 'promptgraph-mcp', 'mcp'],
+        enabled: true,
+      };
+      fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
+      writeJson(config.configPath, json);
+    },
+  },
 };
 
 export function detectPlatforms() {
   return Object.entries(PLATFORMS)
-    .filter(([, p]) => p.configPath && fs.existsSync(path.dirname(p.configPath)))
+    .filter(([id, p]) => {
+      if (!p.configPath) return false;
+      if (fs.existsSync(path.dirname(p.configPath))) return true;
+      if (id === 'opencode') return isOpenCodeInstalled();
+      return false;
+    })
     .map(([id, p]) => ({ id, ...p }));
+}
+
+function isOpenCodeInstalled() {
+  try {
+    const r = spawnSync('opencode', ['--version'], { encoding: 'utf8', timeout: 3000 });
+    return r.status === 0;
+  } catch { return false; }
+}
+
+function getOpenCodeConfig() {
+  if (process.platform === 'win32') {
+    return path.join(HOME, 'AppData', 'Roaming', 'opencode', 'opencode.json');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(HOME, 'Library', 'Application Support', 'opencode', 'opencode.json');
+  }
+  return path.join(HOME, '.config', 'opencode', 'opencode.json');
 }
 
 function getClaudeDesktopConfig() {
