@@ -1,61 +1,60 @@
-import { LocalIndex } from 'vectra';
-import path from 'path';
 import { getDb, blobToVec } from './db.js';
-import { PROMPTGRAPH_DIR } from './config.js';
 
-const INDEX_PATH = path.join(PROMPTGRAPH_DIR, 'hnsw-index');
+// In-memory flat index — no external dependency.
+// For typical skill counts (<5000) this is faster than vectra's disk-based HNSW
+// because all data fits in RAM and no I/O is needed per query.
+let _cache = null;
+let _cacheChunkCount = -1;
 
-let _index = null;
-
-async function getIndex() {
-  if (_index) return _index;
-  _index = new LocalIndex(INDEX_PATH);
-  if (!await _index.isIndexCreated()) {
-    await _index.createIndex({ version: 1, deleteIfExists: true });
-  }
-  return _index;
+function loadCache(db) {
+  const count = db.prepare('SELECT COUNT(*) as n FROM chunks').get().n;
+  if (_cache && count === _cacheChunkCount) return _cache;
+  const rows = db.prepare('SELECT skill_id, embedding FROM chunks').all();
+  _cache = rows.map(r => ({
+    skill_id: r.skill_id,
+    vec: new Float32Array(blobToVec(r.embedding)),
+  }));
+  _cacheChunkCount = count;
+  return _cache;
 }
 
-export async function buildAnnIndex() {
-  const index = await getIndex();
-  await index.createIndex({ version: 1, deleteIfExists: true });
-
-  const db = getDb();
-  const chunks = db.prepare('SELECT skill_id, chunk_index, embedding FROM chunks').all();
-
-  // Batch ALL inserts into a single disk write — vectra otherwise
-  // persists the whole index on every insertItem (O(N^2) I/O).
-  await index.beginUpdate();
-  try {
-    for (const chunk of chunks) {
-      const vec = blobToVec(chunk.embedding);
-      await index.insertItem({
-        vector: vec,
-        metadata: { skill_id: chunk.skill_id, chunk_index: chunk.chunk_index },
-      });
-    }
-    await index.endUpdate();
-  } catch (e) {
-    try { index.cancelUpdate(); } catch {}
-    throw e;
+function cosineSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
   }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-8);
+}
 
-  _index = null; // force reload so queries see fresh index
-  console.error(`[PromptGraph] ANN index built: ${chunks.length} chunks`);
+// Called after reindex — invalidate cache so next search reloads
+export async function buildAnnIndex() {
+  _cache = null;
+  _cacheChunkCount = -1;
+  const db = getDb();
+  const count = db.prepare('SELECT COUNT(*) as n FROM chunks').get().n;
+  console.error(`[PromptGraph] In-memory index ready: ${count} chunks`);
 }
 
 export async function annSearch(queryVec, topK = 20) {
   try {
-    const index = await getIndex();
-    if (!await index.isIndexCreated()) return null;
-    const items = await index.listItems();
-    if (!items || items.length === 0) return null;
+    const db = getDb();
+    const cache = loadCache(db);
+    if (!cache.length) return null;
 
-    const results = await index.queryItems(queryVec, topK);
-    return results.map(r => ({
-      skill_id: r.item.metadata.skill_id,
-      score: r.score,
-    }));
+    const qArr = new Float32Array(queryVec);
+    const bestBySkill = new Map();
+    for (const entry of cache) {
+      const score = cosineSim(qArr, entry.vec);
+      const prev = bestBySkill.get(entry.skill_id);
+      if (!prev || score > prev) bestBySkill.set(entry.skill_id, score);
+    }
+
+    return [...bestBySkill.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topK)
+      .map(([skill_id, score]) => ({ skill_id, score }));
   } catch {
     return null;
   }

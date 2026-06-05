@@ -5,11 +5,32 @@ import { spawnSync } from 'child_process';
 
 const HOME = os.homedir();
 
+const STD_ENTRY = { command: 'npx', args: ['promptgraph-mcp'] };
+const OC_ENTRY  = { type: 'local', command: ['npx', 'promptgraph-mcp'], enabled: true };
+
 // Shared helper: write standard mcpServers entry (Claude Code, Cursor, Windsurf, Codex format)
-function addStdMcp(configPath, defaults = {}) {
-  const json = { ...defaults, ...readJson(configPath) };
+function addStdMcp(configPath) {
+  const json = readJson(configPath) || {};
   json.mcpServers = json.mcpServers || {};
-  json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
+  json.mcpServers.promptgraph = STD_ENTRY;
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeJson(configPath, json);
+}
+
+// Cline uses servers.promptgraph (not mcpServers)
+function addClineMcp(configPath) {
+  const json = readJson(configPath) || {};
+  json.servers = json.servers || {};
+  json.servers.promptgraph = STD_ENTRY;
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeJson(configPath, json);
+}
+
+// OpenCode uses mcp.promptgraph with type/command/enabled
+function addOpenCodeMcp(configPath) {
+  const json = readJson(configPath) || {};
+  json.mcp = json.mcp || {};
+  json.mcp.promptgraph = OC_ENTRY;
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeJson(configPath, json);
 }
@@ -28,13 +49,7 @@ export const PLATFORMS = {
   'cline': {
     name: 'Cline (VS Code)',
     configPath: path.join(HOME, '.vscode', 'mcp.json'),
-    addMcp: (config) => {
-      const json = readJson(config.configPath) || {};
-      json.servers = json.servers || {};
-      json.servers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
-      fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addClineMcp(config.configPath),
   },
   'codex': {
     name: 'OpenAI Codex CLI',
@@ -54,13 +69,7 @@ export const PLATFORMS = {
   'opencode': {
     name: 'OpenCode',
     configPath: getOpenCodeConfig(),
-    addMcp: (config) => {
-      const json = readJson(config.configPath) || {};
-      json.mcp = json.mcp || {};
-      json.mcp.promptgraph = { type: 'local', command: ['npx', 'promptgraph-mcp', 'mcp'], enabled: true };
-      fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addOpenCodeMcp(config.configPath),
   },
 };
 

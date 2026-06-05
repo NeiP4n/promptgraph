@@ -286,7 +286,16 @@ if (args[0] === 'init') {
     console.log(chalk.yellow('⚠') + '  ' + chalk.gray('~/.claude/commands/ not found — is Claude Code installed?'));
     console.log(chalk.gray('   Install from: https://claude.ai/download\n'));
   }
-  console.log(chalk.gray('  Downloading embedding model (~23 MB, one-time)...\n'));
+  if (!args.includes('--yes') && !args.includes('-y')) {
+    const readline = await import('readline');
+    const rl = readline.default.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise(r => rl.question(
+      chalk.yellow('  ⚠') + chalk.gray('  First run downloads ~23 MB embedding model (BGE-Small-EN).\n  Proceed? [Y/n] '), r
+    ));
+    rl.close();
+    if (answer.trim().toLowerCase() === 'n') { info('Aborted.'); process.exit(0); }
+  }
+  console.log(chalk.gray('\n  Downloading embedding model (~23 MB, one-time)...\n'));
   const config = await promptConfig();
   await indexAll();
   console.log();

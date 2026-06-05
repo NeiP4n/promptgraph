@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "main": "index.js",
   "type": "module",
   "bin": {
@@ -42,8 +42,7 @@
     "fastembed": "^2.1.0",
     "glob": "^13.0.6",
     "gray-matter": "^4.0.3",
-    "ora": "^9.4.0",
-    "vectra": "^0.15.0"
+    "ora": "^9.4.0"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

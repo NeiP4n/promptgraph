@@ -30,7 +30,7 @@ export function getDb() {
       skill_id TEXT NOT NULL,
       chunk_index INTEGER NOT NULL,
       text TEXT NOT NULL,
-      embedding TEXT NOT NULL,
+      embedding BLOB NOT NULL,
       UNIQUE(skill_id, chunk_index)
     );
 

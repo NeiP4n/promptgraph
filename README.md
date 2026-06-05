@@ -68,7 +68,7 @@ npx promptgraph-mcp init
   "mcp": {
     "promptgraph": {
       "type": "local",
-      "command": ["npx", "promptgraph-mcp", "mcp"],
+      "command": ["npx", "promptgraph-mcp"],
       "enabled": true
     }
   }
