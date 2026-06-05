@@ -417,9 +417,9 @@ if (args[0] === 'update') {
   }
 
   info(`Current: ${chalk.gray('v' + currentVersion)}  →  Latest: ${chalk.white.bold('v' + latest)}`);
-  const updateSpin = (await import('./cli.js')).spinner(`Installing promptgraph-mcp@${latest}...`);
+  const updateSpin = (await import('./cli.js')).spinner(`Installing promptgraph-mcp@latest (v${latest})...`);
   updateSpin.start();
-  const result = spawnSync('npm', ['install', '-g', `promptgraph-mcp@${latest}`], { encoding: 'utf8', stdio: 'pipe', shell: true });
+  const result = spawnSync('npm', ['install', '-g', 'promptgraph-mcp@latest'], { encoding: 'utf8', stdio: 'pipe', shell: true });
   updateSpin.stop();
 
   if (result.status !== 0) {
