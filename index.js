@@ -392,8 +392,7 @@ if (args[0] === 'update') {
   spin.start();
   let latest = null;
   try {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const r = spawnSync(npmCmd, ['view', 'promptgraph-mcp', 'version'], { encoding: 'utf8' });
+    const r = spawnSync('npm', ['view', 'promptgraph-mcp', 'version'], { encoding: 'utf8', shell: true });
     latest = r.stdout?.trim();
   } catch {}
   spin.stop();
@@ -407,7 +406,7 @@ if (args[0] === 'update') {
   info(`Current: ${chalk.gray('v' + currentVersion)}  →  Latest: ${chalk.white.bold('v' + latest)}`);
   const updateSpin = (await import('./cli.js')).spinner(`Installing promptgraph-mcp@${latest}...`);
   updateSpin.start();
-  const result = spawnSync('npm', ['install', '-g', `promptgraph-mcp@${latest}`], { encoding: 'utf8', stdio: 'pipe' });
+  const result = spawnSync('npm', ['install', '-g', `promptgraph-mcp@${latest}`], { encoding: 'utf8', stdio: 'pipe', shell: true });
   updateSpin.stop();
 
   if (result.status !== 0) {
