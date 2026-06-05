@@ -5,6 +5,9 @@
 import { colors, banner, success, error, info, section, table } from './cli.js';
 import boxen from 'boxen';
 import chalk from 'chalk';
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
 
 const args = process.argv.slice(2);
 // argv[1] is the resolved index.js path (esp. on Windows global installs),
@@ -121,8 +124,8 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
   console.log(
     boxen(
       chalk.dim('install bundle ') + chalk.cyan(`pg bundle install <id>`) + '\n' +
-      chalk.dim('browse skills  ') + chalk.cyan(`${bin} marketplace`) + '\n' +
-      chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>'),
+      chalk.dim('add repo       ') + chalk.cyan(`pg bundle add-repo <owner/repo>`) + '\n' +
+      chalk.dim('browse skills  ') + chalk.cyan(`${bin} marketplace`),
       { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderStyle: 'round', borderColor: '#4B5563', dimBorder: true }
     )
   );
@@ -206,6 +209,7 @@ if (args[0] === 'marketplace') {
     boxen(
       chalk.dim('install skill  ') + chalk.white('install ') + chalk.hex('#A78BFA')(exCode) + '\n' +
       chalk.dim('install bundle ') + chalk.cyan(`pg bundle install <id>`) + '\n' +
+      chalk.dim('add repo       ') + chalk.cyan(`pg bundle add-repo <owner/repo>`) + '\n' +
       chalk.dim('from GitHub    ') + chalk.white('install ') + chalk.hex('#A78BFA')('https://github.com/owner/repo/blob/main/skill.md') + '\n' +
       chalk.dim('publish skill  ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<file.md>') + '\n' +
       chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>') + '\n' +
@@ -262,7 +266,33 @@ if (args[0] === 'bundle') {
     success(result.type === 'repo_import' ? `Imported from ${result.repo_url}` : `Installed ${result.installed?.length || 0} skills`);
     process.exit(0);
   }
-  error('Usage: pg bundle install <bundle-id>');
+  if (args[1] === 'add-repo') {
+    if (!args[2] || !args[2].includes('/')) { error('Usage: pg bundle add-repo <owner/repo>'); process.exit(1); }
+    const repo = args[2].replace('https://github.com/', '').replace('.git', '');
+    const name = repo.split('/')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const id = repo.replace('/', '-').toLowerCase();
+    const bundle = {
+      id, name, repo_url: repo, author: repo.split('/')[0],
+      description: `Skills from ${repo}`,
+      tags: ['community'],
+      stars: 0
+    };
+    const json = JSON.stringify(bundle, null, 2);
+    const tmp = path.join(os.tmpdir(), `pg-bundle-${id}.json`);
+    fs.writeFileSync(tmp, json);
+    const { publishBundle } = await import('./marketplace.js');
+    const result = await publishBundle(tmp);
+    fs.unlinkSync(tmp);
+    if (result?.error) { error(result.error); process.exit(1); }
+    if (result.gh_not_installed) {
+      console.log('\n' + result.instructions);
+      console.log(chalk.gray('\nBundle JSON:\n') + chalk.white(json));
+    } else {
+      success(`Bundle proposed! Submit: ${result.submit_url}`);
+    }
+    process.exit(0);
+  }
+  error('Usage: pg bundle install <id>  |  pg bundle add-repo <owner/repo>');
   process.exit(1);
 }
 
