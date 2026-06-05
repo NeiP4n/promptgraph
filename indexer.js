@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseSkillFile, isSkillFile } from './parser.js';
 import { embedBatch, BATCH_SIZE } from './embedder.js';
-import { getDb, skillId } from './db.js';
+import { getDb, skillId, vecToBlob } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
 import { buildAnnIndex } from './ann.js';
@@ -54,7 +54,7 @@ async function indexBatch(db, skills) {
     }
     for (let i = 0; i < allChunks.length; i++) {
       const { id, chunkIndex, text } = allChunks[i];
-      upsertChunk.run(id, chunkIndex, text, JSON.stringify(embeddings[i]));
+      upsertChunk.run(id, chunkIndex, text, vecToBlob(embeddings[i]));
     }
   })();
 
@@ -161,9 +161,9 @@ export async function indexAll() {
         const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
         progress(count, total, { skipped, eta, errors });
       }
-    } catch {
+    } catch (e) {
       errors++;
-      // Remove stale record if the file was previously indexed but now fails to parse
+      console.error(`[PromptGraph] Error indexing ${file}: ${e.message}`);
       try {
         const stale = db.prepare('SELECT id FROM skills WHERE path = ?').get(file);
         if (stale) {
@@ -181,9 +181,6 @@ export async function indexAll() {
     count += batch.length;
   }
 
-  // rebuild all edges for unchanged skills too (fixes edge loss bug)
-  rebuildEdgesForUnchanged(db);
-
   progress(total, total, { skipped, errors });
   progressDone();
   const spin = spinner('Building ANN index...');
@@ -193,13 +190,6 @@ export async function indexAll() {
   success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${errors} errors, ${skipped} skipped, ${removed} removed)`)}`);
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   info(chalk.gray(`Time: ${elapsed}s`));
-}
-
-function rebuildEdgesForUnchanged(db) {
-  // For skills that were skipped (hash unchanged), their edges were not touched.
-  // This is correct — we only delete+rebuild edges for skills that were re-indexed.
-  // No action needed here: edges for unchanged skills remain intact.
-  // The global DELETE FROM edges at the start was the bug — it's now removed.
 }
 
 export async function indexFile(filePath, source) {

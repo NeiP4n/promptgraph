@@ -37,7 +37,7 @@ function showHelp() {
   for (const [cmd, desc] of cmds) {
     console.log('  ' + chalk.hex('#7C3AED')((bin + ' ' + cmd).padEnd(28)) + chalk.gray(desc));
   }
-  console.log(chalk.gray('\nPlatforms: claude-code, claude-desktop, cline, codex, cursor, windsurf'));
+  console.log(chalk.gray('\nPlatforms: claude-code, claude-desktop, cline, codex, cursor, windsurf, opencode'));
   console.log(chalk.gray('\n  github.com/NeiP4n/promptgraph  ·  npmjs.com/package/promptgraph-mcp\n'));
 }
 
@@ -448,3 +448,11 @@ startWatcher();
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error('[PromptGraph] MCP server running');
+
+const { getDb: _getDb } = await import('./db.js');
+const shutdown = () => {
+  try { _getDb().close(); } catch {}
+  process.exit(0);
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

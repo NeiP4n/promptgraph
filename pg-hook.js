@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { embed } from './embedder.js';
-import { getDb } from './db.js';
+import { embed, cosineSimilarity } from './embedder.js';
+import { getDb, blobToVec } from './db.js';
 import { annSearch } from './ann.js';
-import { cosineSimilarity } from './embedder.js';
 
 let input = '';
 process.stdin.on('data', d => input += d);
@@ -34,7 +33,7 @@ process.stdin.on('end', async () => {
       const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
       const bestBySkill = new Map();
       for (const chunk of chunks) {
-        const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
+        const score = cosineSimilarity(queryVec, blobToVec(chunk.embedding));
         const prev = bestBySkill.get(chunk.skill_id);
         if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
       }

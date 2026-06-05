@@ -1,7 +1,7 @@
 import { LocalIndex } from 'vectra';
 import path from 'path';
 import os from 'os';
-import { getDb } from './db.js';
+import { getDb, blobToVec } from './db.js';
 
 const INDEX_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'hnsw-index');
 
@@ -28,7 +28,7 @@ export async function buildAnnIndex() {
   await index.beginUpdate();
   try {
     for (const chunk of chunks) {
-      const vec = JSON.parse(chunk.embedding);
+      const vec = blobToVec(chunk.embedding);
       await index.insertItem({
         vector: vec,
         metadata: { skill_id: chunk.skill_id, chunk_index: chunk.chunk_index },

@@ -54,9 +54,33 @@ export function getDb() {
     db.exec('ALTER TABLE skills ADD COLUMN hash TEXT');
   }
 
+  // migrate: convert JSON text embeddings to Float32 BLOB (one-time, ~10x smaller)
+  const textEmbeddings = db.prepare("SELECT COUNT(*) as n FROM chunks WHERE typeof(embedding) = 'text'").get();
+  if (textEmbeddings?.n > 0) {
+    const rows = db.prepare("SELECT rowid, embedding FROM chunks WHERE typeof(embedding) = 'text'").all();
+    const upd = db.prepare('UPDATE chunks SET embedding = ? WHERE rowid = ?');
+    db.transaction(() => {
+      for (const row of rows) {
+        const vec = JSON.parse(row.embedding);
+        upd.run(Buffer.from(new Float32Array(vec).buffer), row.rowid);
+      }
+    })();
+    console.error(`[PromptGraph] Migrated ${textEmbeddings.n} embeddings TEXT→BLOB`);
+  }
+
   return db;
 }
 
 export function skillId(source, name) {
   return `${source}::${name}`;
+}
+
+export function vecToBlob(vec) {
+  return Buffer.from(new Float32Array(vec).buffer);
+}
+
+export function blobToVec(blob) {
+  if (typeof blob === 'string') return JSON.parse(blob);
+  const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+  return Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.length / 4));
 }

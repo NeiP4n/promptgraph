@@ -1,5 +1,5 @@
 import { embed, cosineSimilarity } from './embedder.js';
-import { getDb } from './db.js';
+import { getDb, blobToVec } from './db.js';
 import { annSearch } from './ann.js';
 
 function applyRatingBoost(db, id, score) {
@@ -39,7 +39,7 @@ export async function search(query, topK = 5) {
   const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
   const bestBySkill = new Map();
   for (const chunk of chunks) {
-    const score = cosineSimilarity(queryVec, JSON.parse(chunk.embedding));
+    const score = cosineSimilarity(queryVec, blobToVec(chunk.embedding));
     const prev = bestBySkill.get(chunk.skill_id);
     if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
   }
