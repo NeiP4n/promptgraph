@@ -54,7 +54,7 @@ async function detectSkillsDirFromAPI(ownerRepo) {
         const sub = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dir.name}`);
         const subEntries = JSON.parse(sub);
         const mdCount = subEntries.filter(e => e.type === 'file' && e.name.endsWith('.md')).length;
-        if (mdCount >= 2 && mdCount > bestCount) { best = dir.name; bestCount = mdCount; }
+        if (mdCount >= 1 && mdCount > bestCount) { best = dir.name; bestCount = mdCount; }
       } catch {}
     }
     if (best) return { subdir: best, label: best };
@@ -132,7 +132,7 @@ function detectSkillsDirLocal(repoRoot) {
     const candidate = path.join(repoRoot, dir);
     if (fs.existsSync(candidate)) {
       const files = globSync(`${candidate}/**/*.md`);
-      if (files.length >= 2) return { dir: candidate, label: dir, sparse: true };
+      if (files.length >= 1) return { dir: candidate, label: dir, sparse: true };
     }
   }
   return { dir: repoRoot, label: '(root)', sparse: false };
