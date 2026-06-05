@@ -176,11 +176,28 @@ export async function installSkill(query) {
   }
 }
 
+async function countRepoSkills(repoUrl) {
+  try {
+    const apiUrl = `https://api.github.com/repos/${repoUrl}/git/trees/HEAD?recursive=1`;
+    const res = await fetch(apiUrl, { headers: { 'User-Agent': 'promptgraph-mcp' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const exts = ['.md', '.txt', '.yaml', '.yml', '.json'];
+    return (data.tree || []).filter(f => f.type === 'blob' && exts.some(e => f.path.toLowerCase().endsWith(e))).length;
+  } catch { return null; }
+}
+
 export async function browseBundles(topK = 20) {
   try {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
     const bundles = registry.bundles || [];
+    await Promise.all(bundles.map(async b => {
+      if (b.repo_url && b.skillCount === undefined) {
+        const count = await countRepoSkills(b.repo_url);
+        if (count !== null) b.skillCount = count;
+      }
+    }));
     return bundles
       .map(b => ({ ...b, code: b.code || codeFor(b.id) }))
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
