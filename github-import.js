@@ -97,6 +97,37 @@ function sparseClone(url, dest, subdir) {
   return false;
 }
 
+// After full-clone root: remove files that are not skills and dirs we don't need
+function cleanupRepoRoot(repoRoot) {
+  const SKIP_RE = /^(readme|changelog|license|contributing|code.of.conduct|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding)/i;
+  const SKIP_DIRS_LOCAL = new Set(['.github', 'docs', 'doc', 'assets', 'images', 'img', 'screenshots', 'media', 'static', 'scripts', 'ci_scripts', 'node_modules', 'vendor', 'dist', 'build', 'tests', 'test']);
+
+  let removed = 0;
+  const entries = fs.readdirSync(repoRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === '.git') continue;
+    const fullPath = path.join(repoRoot, entry.name);
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS_LOCAL.has(entry.name.toLowerCase())) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        removed++;
+      }
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      const base = entry.name.replace(/\.md$/i, '').toLowerCase();
+      if (SKIP_RE.test(base)) {
+        fs.unlinkSync(fullPath);
+        removed++;
+      }
+    } else if (entry.isFile() && !entry.name.endsWith('.md')) {
+      // Remove non-md files (gitignore, LICENSE, Makefile, etc.) — keep only .md
+      if (entry.name !== '.gitignore') {
+        try { fs.unlinkSync(fullPath); removed++; } catch {}
+      }
+    }
+  }
+  if (removed > 0) console.log(`Cleaned up ${removed} non-skill files/dirs from root`);
+}
+
 // Update sparse repo — fetch + reset
 function sparseUpdate(dest, subdir) {
   const fetch = git(['fetch', '--depth=1', 'origin'], dest);
@@ -182,6 +213,7 @@ export async function importFromGitHub(repoUrl) {
     } else {
       console.log(`no subdir found, cloning root...`);
       cloneOk = fullClone(url, dest);
+      if (cloneOk) cleanupRepoRoot(dest);
     }
 
     if (!cloneOk) throw new Error(`Clone failed for ${url}`);
