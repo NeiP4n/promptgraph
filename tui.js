@@ -143,17 +143,21 @@ function render(state) {
     }
 
     // item row
-    const arrow = selected ? cyan('▶') : ' ';
-    const type  = item.type === 'bundle' ? blue('⊞') : dim('·');
+    const isInstalled = item.type === 'bundle'
+      ? installedSet.has(item.id) || installedSet.has(item.id.toLowerCase())
+      : installedSet.has(item.id) || installedSet.has(item.code);
+    const arrow   = selected ? cyan('▶') : ' ';
+    const type    = item.type === 'bundle' ? blue('⊞') : dim('·');
+    const badge   = isInstalled ? green('✓') : ' ';
     const nameStr = truncate(item.name, NAME_W);
     const namePad = nameStr.padEnd(NAME_W);
     const nameCol = selected ? white.bold(namePad) : white(namePad);
-    const extra = item.type === 'bundle'
+    const extra   = item.type === 'bundle'
       ? (item.skillCount ? blue((item.skillCount + ' sk').padEnd(8)) : blue('GitHub  '))
       : dim((item.code || '').padEnd(8));
     const desc = dim(truncate(item.description, Math.max(10, DESC_W)));
 
-    write(bg + `  ${arrow} ${type} ${nameCol}  ${extra}  ${desc}` + reset + CLEAR_EOL + '\n');
+    write(bg + `  ${arrow} ${type} ${badge} ${nameCol}  ${extra}  ${desc}` + reset + CLEAR_EOL + '\n');
     rendered++;
   }
 
@@ -167,8 +171,12 @@ function render(state) {
   write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
   const sel = items[cursor];
   if (sel && !searching) {
+    const isInst = sel.type === 'bundle'
+      ? installedSet.has(sel.id) || installedSet.has(sel.id.toLowerCase())
+      : installedSet.has(sel.id) || installedSet.has(sel.code);
     const installCmd = sel.type === 'bundle' ? `bundle install ${sel.id}` : `install ${sel.code || sel.id}`;
-    write(dim(` Enter`) + ' install  ' + dim('Tab') + ' switch  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
+    const instLabel = isInst ? green(' ✓ installed') + dim('  ') : dim(' Enter') + chalk.white(' install') + dim('  ');
+    write(instLabel + dim('Tab') + ' switch  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
     write(dim(` → pg ${installCmd}`) + CLEAR_EOL + '\n');
   } else if (searching) {
     write(dim(' Type to filter  ') + cyan('Enter') + dim(' confirm  ') + cyan('Esc') + dim(' cancel') + CLEAR_EOL + '\n');
@@ -196,7 +204,7 @@ function clampScroll(state) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-export async function runTUI(allSkills, allBundles, installFn) {
+export async function runTUI(allSkills, allBundles, installFn, installedSet = new Set()) {
   const allItems = buildItems(allSkills, allBundles);
 
   const state = {

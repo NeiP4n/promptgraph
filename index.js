@@ -182,6 +182,8 @@ if (args[0] === 'marketplace') {
     process.exit(1);
   }
   const { browseMarketplace, browseBundles, installSkill, installBundle } = await import('./marketplace.js');
+  const { loadConfig: _lcMkt } = await import('./config.js');
+  const { getDb: _getDbMkt } = await import('./db.js');
   const { spinner: spin2 } = await import('./cli.js');
   const sp = spin2('Fetching marketplace...');
   sp.start();
@@ -189,6 +191,37 @@ if (args[0] === 'marketplace') {
   sp.stop();
 
   if (skills?.error) { error(skills.error); process.exit(1); }
+
+  // Build installed set: bundle IDs from config sources + skill IDs from DB
+  const installedSet = new Set();
+  try {
+    const cfg = _lcMkt();
+    for (const s of cfg.sources) {
+      if (s.source.startsWith('github:')) installedSet.add(s.source.replace('github:', ''));
+      if (s.source === 'marketplace') installedSet.add('marketplace');
+    }
+    const db = _getDbMkt();
+    for (const row of db.prepare('SELECT id FROM skills').all()) installedSet.add(row.id);
+    // Also add bundle IDs by matching repo names
+    for (const b of (Array.isArray(bundles) ? bundles : [])) {
+      if (b.repo_url) {
+        const repoName = b.repo_url.split('/').join('-');
+        if ([...installedSet].some(s => s.toLowerCase().includes(b.id.split('-').pop()))) {
+          installedSet.add(b.id);
+        }
+      }
+    }
+    // match github sources to bundle ids
+    for (const s of cfg.sources) {
+      if (!s.source.startsWith('github:')) continue;
+      const srcName = s.source.replace('github:', '').toLowerCase();
+      for (const b of (Array.isArray(bundles) ? bundles : [])) {
+        if (srcName.toLowerCase().includes(b.id.toLowerCase()) || b.id.toLowerCase().includes(srcName.split('-')[0])) {
+          installedSet.add(b.id);
+        }
+      }
+    }
+  } catch {}
 
   const { runTUI } = await import('./tui.js');
   await runTUI(
@@ -198,11 +231,15 @@ if (args[0] === 'marketplace') {
       if (item.type === 'bundle') {
         const r = await installBundle(item.id);
         if (r?.error) throw new Error(r.error);
+        installedSet.add(item.id);
       } else {
         const r = await installSkill(item.code || item.id);
         if (r?.error) throw new Error(r.error);
+        installedSet.add(item.id);
+        if (item.code) installedSet.add(item.code);
       }
-    }
+    },
+    installedSet
   );
   process.exit(0);
 }
