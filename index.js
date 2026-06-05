@@ -114,13 +114,13 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
     console.log(wrapB(b.description, 64, '     '));
     console.log('     ' + chalk.gray('includes: ') + (b.repo_url ? chalk.blue(b.repo_url) : chalk.gray((b.skills || []).join(', '))));
     if (b.tags?.length) console.log('     ' + purple(b.tags.map(t => '#' + t).join(' ')));
-    console.log('     ' + chalk.gray('install:  ') + chalk.cyan(`pg_bundle_install("${b.id}")`));
+    console.log('     ' + chalk.gray('install:  ') + chalk.cyan(`pg bundle install ${b.id}`));
     console.log();
   });
 
   console.log(
     boxen(
-      chalk.dim('install bundle ') + chalk.white('install bundle ') + chalk.hex('#A78BFA')('engineering-essentials') + '\n' +
+      chalk.dim('install bundle ') + chalk.cyan(`pg bundle install <id>`) + '\n' +
       chalk.dim('browse skills  ') + chalk.cyan(`${bin} marketplace`) + '\n' +
       chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>'),
       { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderStyle: 'round', borderColor: '#4B5563', dimBorder: true }
@@ -205,7 +205,7 @@ if (args[0] === 'marketplace') {
   console.log(
     boxen(
       chalk.dim('install skill  ') + chalk.white('install ') + chalk.hex('#A78BFA')(exCode) + '\n' +
-      chalk.dim('install bundle ') + chalk.white('install bundle ') + chalk.hex('#A78BFA')('engineering-essentials') + '\n' +
+      chalk.dim('install bundle ') + chalk.cyan(`pg bundle install <id>`) + '\n' +
       chalk.dim('from GitHub    ') + chalk.white('install ') + chalk.hex('#A78BFA')('https://github.com/owner/repo/blob/main/skill.md') + '\n' +
       chalk.dim('publish skill  ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<file.md>') + '\n' +
       chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>') + '\n' +
@@ -251,6 +251,14 @@ if (args[0] === 'search') {
     console.log('     ' + purple(s.source) + '  ' + chalk.dim(s.path));
     console.log();
   });
+  process.exit(0);
+}
+
+if (args[0] === 'bundle' && args[1] === 'install') {
+  const { installBundle } = await import('./marketplace.js');
+  const result = await installBundle(args[2]);
+  if (result?.error) { error(result.error); process.exit(1); }
+  success(result.type === 'repo_import' ? `Imported from ${result.repo_url}` : `Installed ${result.installed?.length || 0} skills`);
   process.exit(0);
 }
 
