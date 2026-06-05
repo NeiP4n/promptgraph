@@ -19,7 +19,7 @@ const SKIP_FILENAMES = new Set([
 ]);
 
 // Filename patterns that are never skills
-const SKIP_FILENAME_RE = /^(_|\.)|^v?\d+[\.\-]\d+|^\d{4}[\-_]\d{2}/i; // _template, .hidden, v1.0, 2024-01
+const SKIP_FILENAME_RE = /^(_|\.)|^v?\d+[\.\-]\d+|^\d{4}[\-_]\d{2}|^readme|^license|^changelog|^contributing/i;
 
 // Path segments that indicate the file is NOT a skill
 const SKIP_DIRS = new Set([
