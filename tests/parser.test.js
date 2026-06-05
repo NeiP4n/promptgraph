@@ -50,6 +50,8 @@ describe('isSkillFile', () => {
     expect(isSkillFile('/x/LICENSE.md')).toBe(false);
   });
   it('accepts real skills', () => {
-    expect(isSkillFile('/x/my-skill.md')).toBe(true);
+    // isSkillFile now reads file content — use a real tmp file
+    const fp = write('real-skill.md', '---\nname: real-skill\ndescription: A real skill for testing\n---\n\n# Real Skill\n\nThis is a real skill with instructions.\n\n## How to use\n\n- Step one\n- Step two\n\n```bash\necho hello\n```\n');
+    expect(isSkillFile(fp)).toBe(true);
   });
 });
