@@ -12,7 +12,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle']);
 
 function showHelp() {
   console.log(
@@ -254,12 +254,16 @@ if (args[0] === 'search') {
   process.exit(0);
 }
 
-if (args[0] === 'bundle' && args[1] === 'install') {
-  const { installBundle } = await import('./marketplace.js');
-  const result = await installBundle(args[2]);
-  if (result?.error) { error(result.error); process.exit(1); }
-  success(result.type === 'repo_import' ? `Imported from ${result.repo_url}` : `Installed ${result.installed?.length || 0} skills`);
-  process.exit(0);
+if (args[0] === 'bundle') {
+  if (args[1] === 'install') {
+    const { installBundle } = await import('./marketplace.js');
+    const result = await installBundle(args[2]);
+    if (result?.error) { error(result.error); process.exit(1); }
+    success(result.type === 'repo_import' ? `Imported from ${result.repo_url}` : `Installed ${result.installed?.length || 0} skills`);
+    process.exit(0);
+  }
+  error('Usage: pg bundle install <bundle-id>');
+  process.exit(1);
 }
 
 if (args[0] === 'import') {
