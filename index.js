@@ -244,6 +244,9 @@ if (args[0] === 'marketplace') {
   } catch {}
 
   const { runTUI } = await import('./tui.js');
+  const { loadConfig: _lcR, saveConfig: _scR, SKILLS_STORE_DIR: _ssR } = await import('./config.js');
+  const { getDb: _getDbR } = await import('./db.js');
+
   await runTUI(
     Array.isArray(skills) ? skills : [],
     Array.isArray(bundles) ? bundles : [],
@@ -259,7 +262,42 @@ if (args[0] === 'marketplace') {
         if (item.code) installedSet.add(item.code);
       }
     },
-    installedSet
+    installedSet,
+    async (item) => {
+      const cfg = _lcR();
+      const db  = _getDbR();
+      if (item.type === 'bundle' && item.repo_url) {
+        // Remove cloned directory
+        const owner = item.repo_url.split('/')[0];
+        const repo  = item.repo_url.split('/')[1];
+        const clonedName = `${owner}-${repo}`;
+        const clonedDir  = path.join(_ssR, 'github', clonedName);
+        if (fs.existsSync(clonedDir)) fs.rmSync(clonedDir, { recursive: true, force: true });
+        // Remove from config + DB
+        const src = `github:${clonedName}`;
+        cfg.sources = cfg.sources.filter(s => s.source !== src && !s.dir.startsWith(clonedDir));
+        _scR(cfg);
+        db.prepare('DELETE FROM skills WHERE source = ?').run(src);
+        db.prepare('DELETE FROM chunks WHERE skill_id NOT IN (SELECT id FROM skills)').run();
+      } else if (item.type === 'bundle') {
+        // skill-list bundle — remove each skill file
+        const mktDir = path.join(_ssR, 'marketplace');
+        for (const sid of (item.skills || [])) {
+          const row = db.prepare('SELECT path FROM skills WHERE id = ?').get(sid);
+          if (row?.path && fs.existsSync(row.path)) fs.unlinkSync(row.path);
+          db.prepare('DELETE FROM skills WHERE id = ?').run(sid);
+          db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(sid);
+        }
+      } else {
+        // individual skill
+        const row = db.prepare('SELECT path FROM skills WHERE id = ?').get(item.id);
+        if (row?.path && fs.existsSync(row.path)) fs.unlinkSync(row.path);
+        db.prepare('DELETE FROM skills WHERE id = ?').run(item.id);
+        db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(item.id);
+      }
+      installedSet.delete(item.id);
+      if (item.code) installedSet.delete(item.code);
+    }
   );
   process.exit(0);
 }

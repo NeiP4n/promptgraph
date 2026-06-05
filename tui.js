@@ -171,17 +171,23 @@ function render(state, installedSet = new Set()) {
   // ── footer ─────────────────────────────────────────────────────────────────
   write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
   const sel = items[cursor];
-  if (sel && !searching) {
+  if (sel && !searching && !state.confirming) {
     const isInst = installedSet.has(sel.id) || (sel.code && installedSet.has(sel.code));
     const installCmd = sel.type === 'bundle' ? `bundle install ${sel.id}` : `install ${sel.code || sel.id}`;
-    const instLabel = isInst ? green(' ✓ installed') + dim('  ') : dim(' Enter') + chalk.white(' install') + dim('  ');
+    const instLabel = isInst
+      ? green(' ✓ installed') + dim('  ') + dim('d') + chalk.red(' remove') + dim('  ')
+      : dim(' Enter') + chalk.white(' install') + dim('  ');
     write(instLabel + dim('Tab') + ' switch  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
     write(dim(` → pg ${installCmd}`) + CLEAR_EOL + '\n');
+  } else if (state.confirming) {
+    write(chalk.red.bold(' Remove ') + chalk.white(state.confirming.name) + chalk.red('? ') +
+      chalk.white.bold('[y]') + chalk.gray('es  ') + chalk.white.bold('[n]') + chalk.gray('o') + CLEAR_EOL + '\n');
+    write(CLEAR_EOL + '\n');
   } else if (searching) {
     write(dim(' Type to filter  ') + cyan('Enter') + dim(' confirm  ') + cyan('Esc') + dim(' cancel') + CLEAR_EOL + '\n');
     write(CLEAR_EOL + '\n');
   } else {
-    write(dim(' ↑↓ navigate  Enter install  Tab switch  / search  q quit') + CLEAR_EOL + '\n');
+    write(dim(' ↑↓ navigate  Enter install  d remove  Tab switch  / search  q quit') + CLEAR_EOL + '\n');
     write(CLEAR_EOL + '\n');
   }
 }
@@ -224,13 +230,14 @@ function clampScroll(state) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-export async function runTUI(allSkills, allBundles, installFn, installedSet = new Set()) {
+export async function runTUI(allSkills, allBundles, installFn, installedSet = new Set(), removeFn = async () => {}) {
   const allItems = buildItems(allSkills, allBundles);
 
   const state = {
     tab: 'all',
     query: '',
     searching: false,
+    confirming: null, // { id, name, type, repoUrl }
     cursor: 0,
     scroll: 0,
     items: allItems,
@@ -293,6 +300,27 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
       return;
     }
 
+    // Confirm-delete mode
+    if (state.confirming) {
+      if (ch === 'y' || ch === 'Y') {
+        const item = state.confirming;
+        state.confirming = null;
+        setStatus(null, `Removing ${item.name}…`);
+        try {
+          await removeFn(item);
+          installedSet.delete(item.id);
+          if (item.code) installedSet.delete(item.code);
+          setStatus(true, `Removed ${item.name}`);
+        } catch (e) {
+          setStatus(false, e.message.slice(0, 60));
+        }
+      } else {
+        state.confirming = null;
+        render(state, installedSet);
+      }
+      return;
+    }
+
     // Normal mode
     if (key.name === 'q' || (key.ctrl && key.name === 'c')) {
       cleanup();
@@ -344,6 +372,16 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
 
     if (key.name === 'home') { state.cursor = 0; state.scroll = 0; render(state, installedSet); return; }
     if (key.name === 'end')  { state.cursor = state.items.length - 1; clampScroll(state); render(state, installedSet); return; }
+
+    if (ch === 'd' || ch === 'D') {
+      const sel = state.items[state.cursor];
+      if (!sel) return;
+      const isInst = installedSet.has(sel.id) || (sel.code && installedSet.has(sel.code));
+      if (!isInst) { setStatus(false, 'Not installed'); return; }
+      state.confirming = { id: sel.id, name: sel.name, type: sel.type, code: sel.code, repo_url: sel.repo_url };
+      render(state, installedSet);
+      return;
+    }
 
     if (key.name === 'return' || key.name === 'i') {
       const sel = state.items[state.cursor];
