@@ -75,7 +75,7 @@ function filterItems(items, query, tab) {
 
 function render(state, installedSet = new Set()) {
   const { cols, rows } = termSize();
-  const HEADER_ROWS = 5;
+  const HEADER_ROWS = 4;
   const FOOTER_ROWS = 3;
   const LIST_ROWS = rows - HEADER_ROWS - FOOTER_ROWS;
   const NAME_W = Math.max(20, Math.floor(cols * 0.28));
@@ -85,7 +85,7 @@ function render(state, installedSet = new Set()) {
   const skills  = items.filter(i => i.type === 'skill').length;
   const bundles = items.filter(i => i.type === 'bundle').length;
 
-  write(HOME);
+  write('\x1b[H\x1b[J'); // go home + clear to end (no flicker vs full CLEAR)
 
   // ── header ─────────────────────────────────────────────────────────────────
   // Row 1: title bar
@@ -113,14 +113,13 @@ function render(state, installedSet = new Set()) {
     : dim(query ? query : 'type / to search, Tab to switch view');
   write(searchLabel + searchVal + CLEAR_EOL + '\n');
 
-  // Row 4: status / separator
+  // Row 4: separator (with optional status inline)
   if (status) {
-    const msg = status.ok ? green('  ✓  ' + status.msg) : red('  ✗  ' + status.msg);
-    write(msg + CLEAR_EOL + '\n');
+    const msg = status.ok ? green(' ✓ ' + status.msg) : red(' ✗ ' + status.msg);
+    write(dim('─'.repeat(4)) + msg + CLEAR_EOL + '\n');
   } else {
     write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
   }
-  write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
 
   // ── list ───────────────────────────────────────────────────────────────────
   let lastCat = null;
@@ -150,8 +149,12 @@ function render(state, installedSet = new Set()) {
     const nameStr = truncate(item.name, NAME_W);
     const namePad = nameStr.padEnd(NAME_W);
     const nameCol = selected ? white.bold(namePad) : white(namePad);
-    const extra   = item.type === 'bundle'
-      ? (item.skillCount ? blue((item.skillCount + ' sk').padEnd(8)) : blue('GitHub  '))
+    const extra = item.type === 'bundle'
+      ? item.skillCount
+        ? blue((item.skillCount + ' sk').padEnd(8))
+        : item.repo_url
+          ? blue('GitHub  ')
+          : dim(((item.skills?.length || 0) + ' sk').padEnd(8))
       : dim((item.code || '').padEnd(8));
     const desc = dim(truncate(item.description, Math.max(10, DESC_W)));
 
