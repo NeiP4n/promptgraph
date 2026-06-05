@@ -34,6 +34,7 @@ function showHelp() {
     ['import <owner/repo>', 'Import skills from GitHub'],
     ['status',              'Show installed skills, repos, and bundles'],
     ['marketplace',         'Interactive TUI: browse + search + install skills & bundles'],
+    ['bundle update [id]',  'Update all (or one) installed GitHub bundles'],
     ['validate <file.md>',  'Validate a skill before publishing'],
     ['doctor',              'Clean orphaned chunks/edges/ratings'],
     ['update',              'Update to the latest version from npm'],
@@ -329,6 +330,75 @@ if (args[0] === 'search') {
 }
 
 if (args[0] === 'bundle') {
+  if (args[1] === 'update') {
+    const { loadConfig: _lcUpd, SKILLS_STORE_DIR: _ssDir } = await import('./config.js');
+    const { indexSource } = await import('./indexer.js');
+    const cfg = _lcUpd();
+    const githubSources = cfg.sources.filter(s => s.source.startsWith('github:'));
+
+    if (!githubSources.length) { info('No GitHub bundles installed.'); process.exit(0); }
+
+    const targetId = args[2]; // optional: pg bundle update <id>
+    const toUpdate = targetId
+      ? githubSources.filter(s => s.source.toLowerCase().includes(targetId.toLowerCase()))
+      : githubSources;
+
+    if (!toUpdate.length) { error(`No installed bundle matching "${targetId}"`); process.exit(1); }
+
+    let updated = 0, unchanged = 0, failed = 0;
+
+    for (const src of toUpdate) {
+      const repoName = src.source.replace('github:', '');
+      const dest = src.dir.replace(/[/\\]skills$|[/\\]commands$|[/\\]prompts$/, ''); // get repo root
+      const repoRoot = fs.existsSync(path.join(dest, '.git')) ? dest : src.dir;
+
+      if (!fs.existsSync(path.join(repoRoot, '.git'))) {
+        console.log(chalk.gray(`  skip ${repoName} (not a git repo)`));
+        continue;
+      }
+
+      process.stdout.write(`  Checking ${chalk.white(repoName)}... `);
+
+      // Get current HEAD hash
+      const before = spawnSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+
+      // Fetch + reset (same as install)
+      const fetch = spawnSync('git', ['-C', repoRoot, 'fetch', '--depth=1', 'origin'], { stdio: 'pipe' });
+      if (fetch.status !== 0) {
+        console.log(chalk.red('fetch failed'));
+        failed++;
+        continue;
+      }
+      const reset = spawnSync('git', ['-C', repoRoot, 'reset', '--hard', 'origin/HEAD'], { stdio: 'pipe' });
+      if (reset.status !== 0) {
+        spawnSync('git', ['-C', repoRoot, 'reset', '--hard', 'origin/main'], { stdio: 'pipe' });
+      }
+
+      const after = spawnSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+
+      if (before === after) {
+        console.log(chalk.gray('already up to date'));
+        unchanged++;
+        continue;
+      }
+
+      // Count changed .md files
+      const diff = spawnSync('git', ['-C', repoRoot, 'diff', '--name-only', before, after], { encoding: 'utf8' });
+      const changedMd = (diff.stdout || '').split('\n').filter(f => f.endsWith('.md')).length;
+      console.log(chalk.green(`${changedMd} files changed`) + chalk.gray(` (${before.slice(0,7)} → ${after.slice(0,7)})`));
+
+      // Reindex only this source — incremental hash check skips unchanged files
+      await indexSource(src.dir, src.source);
+      updated++;
+    }
+
+    console.log();
+    if (updated)   success(`Updated ${updated} bundle(s)`);
+    if (unchanged) info(chalk.gray(`${unchanged} already up to date`));
+    if (failed)    error(`${failed} failed`);
+    process.exit(failed > 0 ? 1 : 0);
+  }
+
   if (args[1] === 'install') {
     const { installBundle } = await import('./marketplace.js');
     const result = await installBundle(args[2]);
