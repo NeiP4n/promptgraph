@@ -62,8 +62,8 @@ function sparseClone(url, dest, subdir) {
   git(['sparse-checkout', 'init', '--cone'], dest, 'pipe');
   git(['sparse-checkout', 'set', subdir], dest, 'pipe');
 
-  // 3. fetch + checkout (depth=1)
-  const fetch = git(['fetch', '--depth=1', 'origin'], dest);
+  // 3. fetch + checkout (depth=1, skip large blobs)
+  const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
   if (fetch.status !== 0) return false;
 
   // Try HEAD, then main, then master
@@ -90,16 +90,17 @@ function sparseUpdate(dest, subdir) {
 }
 
 // Fallback: full clone (when no subdir found)
+// --filter=blob:none skips large binaries (images, zips) — only fetches text files
 function fullClone(url, dest) {
   if (fs.existsSync(dest)) {
-    const fetch = git(['fetch', '--depth=1', 'origin'], dest);
+    const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
     if (fetch.status !== 0) return false;
     for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
       if (git(['reset', '--hard', ref], dest, 'pipe').status === 0) return true;
     }
     return false;
   }
-  return git(['clone', '--depth=1', url, dest]).status === 0;
+  return git(['clone', '--depth=1', '--filter=blob:none', url, dest]).status === 0;
 }
 
 // After clone: detect actual skills dir on disk
