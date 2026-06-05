@@ -196,31 +196,31 @@ if (args[0] === 'marketplace') {
   const installedSet = new Set();
   try {
     const cfg = _lcMkt();
-    for (const s of cfg.sources) {
-      if (s.source.startsWith('github:')) installedSet.add(s.source.replace('github:', ''));
-      if (s.source === 'marketplace') installedSet.add('marketplace');
-    }
     const db = _getDbMkt();
-    for (const row of db.prepare('SELECT id FROM skills').all()) installedSet.add(row.id);
-    // Also add bundle IDs by matching repo names
+
+    // Collect installed skill IDs from DB
+    const dbSkillIds = new Set(db.prepare('SELECT id FROM skills').all().map(r => r.id));
+
+    // Build set of cloned repo names from config sources (exact: github:owner-repo)
+    const githubSources = new Set(
+      cfg.sources.filter(s => s.source.startsWith('github:')).map(s => s.source.replace('github:', '').toLowerCase())
+    );
+
     for (const b of (Array.isArray(bundles) ? bundles : [])) {
       if (b.repo_url) {
-        const repoName = b.repo_url.split('/').join('-');
-        if ([...installedSet].some(s => s.toLowerCase().includes(b.id.split('-').pop()))) {
+        // repo_url = "owner/repo" → cloned as "owner-repo" in github: source
+        const clonedName = b.repo_url.replace('/', '-').toLowerCase();
+        if (githubSources.has(clonedName)) installedSet.add(b.id);
+      } else if (Array.isArray(b.skills)) {
+        // skill-list bundle: installed if ALL skills are in DB
+        if (b.skills.length > 0 && b.skills.every(sid => dbSkillIds.has(sid))) {
           installedSet.add(b.id);
         }
       }
     }
-    // match github sources to bundle ids
-    for (const s of cfg.sources) {
-      if (!s.source.startsWith('github:')) continue;
-      const srcName = s.source.replace('github:', '').toLowerCase();
-      for (const b of (Array.isArray(bundles) ? bundles : [])) {
-        if (srcName.toLowerCase().includes(b.id.toLowerCase()) || b.id.toLowerCase().includes(srcName.split('-')[0])) {
-          installedSet.add(b.id);
-        }
-      }
-    }
+
+    // Individual skills
+    for (const id of dbSkillIds) installedSet.add(id);
   } catch {}
 
   const { runTUI } = await import('./tui.js');

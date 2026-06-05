@@ -143,9 +143,7 @@ function render(state, installedSet = new Set()) {
     }
 
     // item row
-    const isInstalled = item.type === 'bundle'
-      ? installedSet.has(item.id) || installedSet.has(item.id.toLowerCase())
-      : installedSet.has(item.id) || installedSet.has(item.code);
+    const isInstalled = installedSet.has(item.id) || (item.code && installedSet.has(item.code));
     const arrow   = selected ? cyan('▶') : ' ';
     const type    = item.type === 'bundle' ? blue('⊞') : dim('·');
     const badge   = isInstalled ? green('✓') : ' ';
@@ -171,9 +169,7 @@ function render(state, installedSet = new Set()) {
   write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
   const sel = items[cursor];
   if (sel && !searching) {
-    const isInst = sel.type === 'bundle'
-      ? installedSet.has(sel.id) || installedSet.has(sel.id.toLowerCase())
-      : installedSet.has(sel.id) || installedSet.has(sel.code);
+    const isInst = installedSet.has(sel.id) || (sel.code && installedSet.has(sel.code));
     const installCmd = sel.type === 'bundle' ? `bundle install ${sel.id}` : `install ${sel.code || sel.id}`;
     const instLabel = isInst ? green(' ✓ installed') + dim('  ') : dim(' Enter') + chalk.white(' install') + dim('  ');
     write(instLabel + dim('Tab') + ' switch  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
