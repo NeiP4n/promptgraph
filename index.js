@@ -209,6 +209,15 @@ if (args[0] === 'marketplace') {
 
   if (skills?.error) { error(skills.error); process.exit(1); }
 
+  // Apply cached skillCounts and refresh stale ones in background
+  const { getCachedCount, refreshCountsInBackground } = await import('./bundle-counts.js');
+  const bundlesWithCounts = (Array.isArray(bundles) ? bundles : []).map(b => {
+    if (!b.repo_url) return b;
+    const cached = getCachedCount(b.repo_url);
+    return cached !== null ? { ...b, skillCount: cached } : b;
+  });
+  refreshCountsInBackground(bundlesWithCounts);
+
   // Build installed set — source of truth is the FILESYSTEM, not DB/config
   const installedSet = new Set();
   try {
@@ -249,7 +258,7 @@ if (args[0] === 'marketplace') {
 
   await runTUI(
     Array.isArray(skills) ? skills : [],
-    Array.isArray(bundles) ? bundles : [],
+    bundlesWithCounts,
     async (item) => {
       if (item.type === 'bundle') {
         const r = await installBundle(item.id);
