@@ -26,21 +26,18 @@ const SKIP_DIRS = new Set([
   'node_modules', 'vendor', 'third_party',
 ]);
 
-export function isSkillFile(filePath) {
+export function isSkillFile(filePath, raw) {
   const parts = filePath.replace(/\\/g, '/').split('/');
   const base = parts[parts.length - 1].replace(/\.md$/i, '').toLowerCase();
 
-  // Skip by filename
   if (SKIP_FILENAMES.has(base)) return false;
 
-  // Skip if any parent directory is in the skip list
   for (const part of parts.slice(0, -1)) {
     if (SKIP_DIRS.has(part.toLowerCase())) return false;
   }
 
-  // Read and check content quality
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
+    if (!raw) raw = fs.readFileSync(filePath, 'utf8');
 
     // Too short to be a real skill
     if (raw.length < 150) return false;
@@ -67,7 +64,7 @@ export function isSkillFile(filePath) {
 }
 
 export function parseSkillFile(filePath, source, opts = {}) {
-  const raw = fs.readFileSync(filePath, 'utf8');
+  const raw = opts.raw ?? fs.readFileSync(filePath, 'utf8');
 
   let name, description, content;
 

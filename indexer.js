@@ -11,12 +11,7 @@ import { buildAnnIndex } from './ann.js';
 import { progress, progressDone, success, info, spinner } from './cli.js';
 import chalk from 'chalk';
 
-function fileHash(filePath) {
-  const content = fs.readFileSync(filePath);
-  return createHash('md5').update(content).digest('hex');
-}
-
-async function indexBatch(db, skills) {
+async function indexBatch(db, skills, { fast = false } = {}) {
   const upsertSkill = db.prepare(`
     INSERT INTO skills (id, name, description, path, source, content, hash)
     VALUES (@id, @name, @description, @path, @source, @content, @hash)
@@ -31,30 +26,43 @@ async function indexBatch(db, skills) {
   const deleteEdges = db.prepare('DELETE FROM edges WHERE from_skill = ?');
   const upsertChunk = db.prepare('INSERT OR REPLACE INTO chunks (skill_id, chunk_index, text, embedding) VALUES (?, ?, ?, ?)');
   const upsertEdge = db.prepare('INSERT OR IGNORE INTO edges (from_skill, to_skill) VALUES (?, ?)');
+  const upsertFts = db.prepare(`INSERT OR REPLACE INTO skills_fts(id, name, description, content) VALUES (?, ?, ?, ?)`);
 
   const allChunks = [];
-  for (const skill of skills) {
-    const id = skillId(skill.source, skill.name);
-    const chunks = chunkText(skill.name + ' ' + skill.description + '\n' + skill.content);
-    for (let i = 0; i < chunks.length; i++) {
-      allChunks.push({ id, skill, chunkIndex: i, text: chunks[i] });
+  if (!fast) {
+    for (const skill of skills) {
+      const id = skillId(skill.source, skill.name);
+      const chunks = chunkText(skill.name + ' ' + skill.description + '\n' + skill.content);
+      for (let i = 0; i < chunks.length; i++) {
+        allChunks.push({ id, skill, chunkIndex: i, text: chunks[i] });
+      }
     }
   }
 
-  const texts = allChunks.map(c => c.text);
-  const embeddings = await embedBatch(texts);
+  let embeddings = [];
+  if (!fast && allChunks.length) {
+    const texts = allChunks.map(c => c.text);
+    process.stdout.write(`  Embedding ${texts.length} chunks...`);
+    embeddings = await embedBatch(texts);
+    process.stdout.write('\r' + ' '.repeat(40) + '\r');
+  }
 
   // pass 1: upsert all skills + chunks (no edges yet)
   db.transaction(() => {
     for (const skill of skills) {
       const id = skillId(skill.source, skill.name);
       upsertSkill.run({ id, name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content, hash: skill.hash || null });
-      deleteChunks.run(id);
-      deleteEdges.run(id);
+      upsertFts.run(id, skill.name, skill.description || '', skill.content || '');
+      if (!fast) {
+        deleteChunks.run(id);
+        deleteEdges.run(id);
+      }
     }
-    for (let i = 0; i < allChunks.length; i++) {
-      const { id, chunkIndex, text } = allChunks[i];
-      upsertChunk.run(id, chunkIndex, text, vecToBlob(embeddings[i]));
+    if (!fast) {
+      for (let i = 0; i < allChunks.length; i++) {
+        const { id, chunkIndex, text } = allChunks[i];
+        upsertChunk.run(id, chunkIndex, text, vecToBlob(embeddings[i]));
+      }
     }
   })();
 
@@ -74,7 +82,7 @@ async function indexBatch(db, skills) {
   })();
 }
 
-export async function indexAll() {
+export async function indexAll({ fast = false } = {}) {
   const config = loadConfig();
   const db = getDb();
 
@@ -132,30 +140,41 @@ export async function indexAll() {
   let skipped = 0;
   let batch = [];
   const start = Date.now();
-  const getHash = db.prepare('SELECT hash FROM skills WHERE id = ?');
+
+  // Build a path→{hash,id} map from DB for O(1) lookups
+  const dbByPath = new Map();
+  for (const row of db.prepare('SELECT id, path, hash FROM skills').all()) {
+    dbByPath.set(row.path, row);
+  }
 
   for (const { file, source } of allFiles) {
     try {
-      if (!isSkillFile(file)) { skipped++; count++; continue; }
-      const hash = fileHash(file);
-      const parsed = parseSkillFile(file, source);
-      const id = skillId(source, parsed.name);
+      // 1. Read file once
+      let raw;
+      try { raw = fs.readFileSync(file, 'utf8'); } catch { skipped++; count++; continue; }
 
-      const existing = getHash.get(id);
-      if (existing?.hash === hash) {
-        skipped++;
-        count++;
-        if (count % 100 === 0) {
-          const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
+      // 2. Hash first — cheapest check
+      const hash = createHash('md5').update(raw).digest('hex');
+
+      // 3. If path already in DB with same hash → skip without parsing
+      const dbRow = dbByPath.get(file);
+      if (dbRow?.hash === hash) {
+        skipped++; count++;
+        if (count % 200 === 0) {
+          const eta = Math.round((total - count) * (Date.now() - start) / count / 1000);
           progress(count, total, { skipped, eta, errors });
         }
         continue;
       }
 
+      // 4. Only now check if it's a real skill (content already in memory)
+      if (!isSkillFile(file, raw)) { skipped++; count++; continue; }
+
+      const parsed = parseSkillFile(file, source, { raw });
       batch.push({ ...parsed, hash });
 
       if (batch.length >= BATCH_SIZE) {
-        await indexBatch(db, batch);
+        await indexBatch(db, batch, { fast });
         count += batch.length;
         batch = [];
         const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
@@ -177,23 +196,78 @@ export async function indexAll() {
   }
 
   if (batch.length > 0) {
-    await indexBatch(db, batch);
+    await indexBatch(db, batch, { fast });
     count += batch.length;
   }
 
   progress(total, total, { skipped, errors });
   progressDone();
-  const spin = spinner('Building ANN index...');
-  spin.start();
-  await buildAnnIndex();
-  spin.stop();
+  if (!fast) {
+    const spin = spinner('Building ANN index...');
+    spin.start();
+    await buildAnnIndex();
+    spin.stop();
+  }
   success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${errors} errors, ${skipped} skipped, ${removed} removed)`)}`);
+  if (fast) info(chalk.yellow('Fast mode: keyword search only. Run `pg reindex` for semantic search.'));
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   info(chalk.gray(`Time: ${elapsed}s`));
 }
 
 export async function indexFile(filePath, source) {
   const db = getDb();
-  const skill = parseSkillFile(filePath, source);
-  await indexBatch(db, [{ ...skill, hash: fileHash(filePath) }]);
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const hash = createHash('md5').update(raw).digest('hex');
+  const skill = parseSkillFile(filePath, source, { raw });
+  await indexBatch(db, [{ ...skill, hash }]);
+}
+
+// Index only one source directory — much faster than indexAll after a bundle install
+export async function indexSource(dir, sourceName) {
+  const db = getDb();
+  const files = globSync(`${dir}/**/*.md`);
+  const total = files.length;
+  info(`Indexing ${chalk.white.bold(total)} files from ${sourceName}...`);
+
+  const dbByPath = new Map();
+  for (const row of db.prepare('SELECT id, path, hash FROM skills WHERE source = ?').all(sourceName)) {
+    dbByPath.set(row.path, row);
+  }
+
+  // Remove skills from this source whose files are gone
+  const existingPaths = new Set(files.map(f => path.resolve(f)));
+  for (const [, row] of dbByPath) {
+    if (!existingPaths.has(path.resolve(row.path))) {
+      db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
+      db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(row.id);
+      db.prepare('DELETE FROM edges WHERE from_skill = ? OR to_skill = ?').run(row.id, row.id);
+    }
+  }
+
+  let count = 0, skipped = 0, errors = 0, batch = [];
+  const start = Date.now();
+
+  for (const file of files) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      const hash = createHash('md5').update(raw).digest('hex');
+      const dbRow = dbByPath.get(file);
+      if (dbRow?.hash === hash) { skipped++; count++; continue; }
+      if (!isSkillFile(file, raw)) { skipped++; count++; continue; }
+      const parsed = parseSkillFile(file, sourceName, { raw });
+      batch.push({ ...parsed, hash });
+      if (batch.length >= BATCH_SIZE) {
+        await indexBatch(db, batch);
+        count += batch.length; batch = [];
+        progress(count, total, { skipped, errors });
+      }
+    } catch (e) { errors++; count++; }
+  }
+
+  if (batch.length > 0) { await indexBatch(db, batch); count += batch.length; }
+  progress(total, total, { skipped, errors });
+  progressDone();
+  await buildAnnIndex();
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  success(`Indexed ${chalk.white.bold(count)} skills from ${sourceName} ${chalk.gray(`(${skipped} skipped, ${elapsed}s)`)}`);
 }

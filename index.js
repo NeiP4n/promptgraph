@@ -16,7 +16,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle', 'status']);
 
 function showHelp() {
   console.log(
@@ -32,7 +32,9 @@ function showHelp() {
     ['reindex',             'Re-index all skills'],
     ['search <query>',      'Search skills from the terminal'],
     ['import <owner/repo>', 'Import skills from GitHub'],
-    ['marketplace [page]',  'Browse the community skill registry'],
+    ['status',              'Show installed skills, repos, and bundles'],
+    ['marketplace [cat]',   'Browse skills by category (Engineering, Coding, …)'],
+    ['marketplace bundles', 'Browse skill bundles grouped by category'],
     ['validate <file.md>',  'Validate a skill before publishing'],
     ['doctor',              'Clean orphaned chunks/edges/ratings'],
     ['update',              'Update to the latest version from npm'],
@@ -81,6 +83,100 @@ if (args[0] === 'doctor') {
   process.exit(0);
 }
 
+if (args[0] === 'status') {
+  const { loadConfig: _lc } = await import('./config.js');
+  const { getDb } = await import('./db.js');
+  const { fetchText } = await import('./marketplace.js');
+  const purple = chalk.hex('#7C3AED');
+  const cfg = _lc();
+  const db = getDb();
+
+  // Skills per source from DB
+  const sourceCounts = new Map();
+  for (const row of db.prepare('SELECT source, COUNT(*) as n FROM skills GROUP BY source').all()) {
+    sourceCounts.set(row.source, row.n);
+  }
+  const totalSkills = db.prepare('SELECT COUNT(*) as n FROM skills').get().n;
+
+  console.log();
+  console.log('  ' + purple.bold('◆ PromptGraph Status'));
+  console.log('  ' + chalk.gray('─'.repeat(56)));
+  console.log();
+  console.log('  ' + chalk.bold.white(`${totalSkills} skills indexed`) + chalk.gray(`  ·  ${cfg.sources.length} sources`));
+  console.log();
+
+  // Sources grouped by type
+  const githubSources = cfg.sources.filter(s => s.source.startsWith('github:'));
+  const localSources  = cfg.sources.filter(s => !s.source.startsWith('github:'));
+
+  if (localSources.length) {
+    console.log('  ' + purple('📁  Local'));
+    for (const s of localSources) {
+      const n = sourceCounts.get(s.source) || 0;
+      const exists = fs.existsSync(s.dir);
+      const label = exists ? chalk.white(s.source) : chalk.gray(s.source + ' (missing)');
+      console.log('    ' + label + chalk.gray(`  ${n} skills  ·  ${s.dir}`));
+    }
+    console.log();
+  }
+
+  if (githubSources.length) {
+    console.log('  ' + purple('🌐  GitHub repos'));
+    for (const s of githubSources) {
+      const n = sourceCounts.get(s.source) || 0;
+      const repoName = s.source.replace('github:', '');
+      const exists = fs.existsSync(s.dir);
+      const label = exists ? chalk.white(repoName) : chalk.gray(repoName + ' (not cloned)');
+      console.log('    ' + label + chalk.gray(`  ${n} skills`));
+      console.log('      ' + chalk.dim(s.dir));
+    }
+    console.log();
+  }
+
+  // Marketplace skill-list bundles (installed individually, not whole repos)
+  const marketplaceDir = path.join(os.homedir(), '.claude', 'skills-store', 'marketplace');
+  const installedBundles = fs.existsSync(marketplaceDir)
+    ? fs.readdirSync(marketplaceDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+    : [];
+
+  if (installedBundles.length) {
+    let registryBundles = [];
+    try {
+      const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
+      const text = await fetchText(REGISTRY_URL);
+      registryBundles = JSON.parse(text).bundles || [];
+    } catch {}
+
+    console.log('  ' + purple('📦  Installed marketplace bundles'));
+    for (const b of installedBundles) {
+      const bundle = registryBundles.find(rb => rb.id === b);
+      const name = bundle ? chalk.white.bold(bundle.name || b) : chalk.white(b);
+      const cat  = bundle?.category ? chalk.dim(` [${bundle.category}]`) : '';
+      const n    = sourceCounts.get('marketplace') || 0;
+      console.log(`    ${name}${cat}  ${chalk.gray(n + ' skills')}`);
+    }
+    console.log();
+  }
+
+  // Not-yet-indexed repos hint
+  const emptyRepos = githubSources.filter(s => (sourceCounts.get(s.source) || 0) === 0 && fs.existsSync(s.dir));
+  if (emptyRepos.length) {
+    console.log('  ' + chalk.yellow(`⚠  ${emptyRepos.length} repo(s) not indexed`) + chalk.gray('  →  run: ') + chalk.cyan(`${bin} reindex`));
+    console.log();
+  }
+
+  console.log(
+    boxen(
+      chalk.dim('full reindex   ') + chalk.cyan(`${bin} reindex`) + '\n' +
+      chalk.dim('install bundle ') + chalk.cyan(`${bin} bundle install <id>`) + '\n' +
+      chalk.dim('browse market  ') + chalk.cyan(`${bin} marketplace bundles`),
+      { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderStyle: 'round', borderColor: '#4B5563', dimBorder: true }
+    )
+  );
+  console.log();
+  process.exit(0);
+}
+
 if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')) {
   const { browseBundles } = await import('./marketplace.js');
   const purple = chalk.hex('#7C3AED');
@@ -104,6 +200,8 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
     process.exit(0);
   }
 
+  const CATEGORY_ICONS = { Engineering: '🛠', 'AI Tools': '🤖', Coding: '💻', Creative: '🎨', Security: '🔒', Community: '🌐' };
+
   const wrapB = (t, w, ind) => {
     const words = (t || '').split(/\s+/); const lines = []; let line = '';
     for (const x of words) { if ((line + ' ' + x).trim().length > w) { lines.push(line.trim()); line = x; } else line += ' ' + x; }
@@ -111,18 +209,31 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
     return lines.map(l => ind + chalk.gray(l)).join('\n');
   };
 
-  bundles.forEach((b, i) => {
-    const stars = b.stars > 0 ? chalk.yellow('★ ' + b.stars) : chalk.gray('★ 0');
-    const countLabel = b.repo_url
-      ? chalk.blue((b.skillCount ? b.skillCount + ' skills · ' : '') + 'GitHub')
-      : chalk.gray((b.skills?.length || 0) + ' skills');
-    console.log('  ' + chalk.gray((i + 1) + '.') + ' ' + chalk.white.bold(b.id) + '   ' + stars + '   ' + countLabel);
-    console.log(wrapB(b.description, 64, '     '));
-    console.log('     ' + chalk.gray('includes: ') + (b.repo_url ? chalk.blue(b.repo_url) : chalk.gray((b.skills || []).join(', '))));
-    if (b.tags?.length) console.log('     ' + purple(b.tags.map(t => '#' + t).join(' ')));
-    console.log('     ' + chalk.gray('install:  ') + chalk.cyan(`pg bundle install ${b.id}`));
-    console.log();
-  });
+  // Group by category
+  const byCategory = {};
+  for (const b of bundles) {
+    const cat = b.category || 'Community';
+    (byCategory[cat] = byCategory[cat] || []).push(b);
+  }
+
+  let globalIdx = 1;
+  for (const [cat, items] of Object.entries(byCategory)) {
+    const icon = CATEGORY_ICONS[cat] || '📦';
+    console.log('  ' + chalk.hex('#7C3AED').bold(`${icon}  ${cat}`));
+    console.log('  ' + chalk.gray('─'.repeat(50)));
+    for (const b of items) {
+      const stars = b.stars > 0 ? chalk.yellow('★ ' + b.stars) : chalk.gray('★ 0');
+      const countLabel = b.repo_url
+        ? chalk.blue((b.skillCount ? b.skillCount + ' skills · ' : '') + 'GitHub')
+        : chalk.gray((b.skills?.length || 0) + ' skills');
+      console.log('  ' + chalk.gray(globalIdx++ + '.') + ' ' + chalk.white.bold(b.id) + '   ' + stars + '   ' + countLabel);
+      console.log(wrapB(b.description, 64, '     '));
+      console.log('     ' + chalk.gray('includes: ') + (b.repo_url ? chalk.blue(b.repo_url) : chalk.gray((b.skills || []).join(', '))));
+      if (b.tags?.length) console.log('     ' + purple(b.tags.map(t => '#' + t).join(' ')));
+      console.log('     ' + chalk.gray('install:  ') + chalk.cyan(`pg bundle install ${b.id}`));
+      console.log();
+    }
+  }
 
   console.log(
     boxen(
@@ -138,36 +249,35 @@ if (args[0] === 'marketplace' && (args[1] === 'bundles' || args[1] === 'bundle')
 
 if (args[0] === 'marketplace') {
   const { browseMarketplace } = await import('./marketplace.js');
-  const PER_PAGE = 10;
-  const page = Math.max(1, parseInt(args[1]) || 1);
+  const purple = chalk.hex('#7C3AED');
+  const W = 60;
+
+  // Support: pg marketplace <category> or pg marketplace <page>
+  const arg1 = args[1];
+  const pageArg = parseInt(arg1);
+  const categoryFilter = (!arg1 || isNaN(pageArg)) ? (arg1 || null) : null;
+  const PER_PAGE = categoryFilter ? 1000 : 10;
+  const page = categoryFilter ? 1 : Math.max(1, pageArg || 1);
 
   const { clearScreen } = await import('./cli.js');
   const spin = (await import('./cli.js')).spinner('Fetching registry...');
   spin.start();
-  const all = await browseMarketplace(1000);
+  let all = await browseMarketplace(1000);
   spin.stop();
   clearScreen();
 
-  if (all?.error) {
-    error(all.error);
-    process.exit(1);
-  }
+  if (all?.error) { error(all.error); process.exit(1); }
   if (!all.length) {
     info('Registry is empty. Be the first to contribute!');
     console.log(chalk.gray('  github.com/NeiP4n/promptgraph-registry\n'));
     process.exit(0);
   }
 
-  const totalPages = Math.ceil(all.length / PER_PAGE);
-  const startIdx = (page - 1) * PER_PAGE;
-  const slice = all.slice(startIdx, startIdx + PER_PAGE);
-  const purple = chalk.hex('#7C3AED');
-  const W = 60;
+  const SKILL_CAT_ICONS = { Engineering: '🛠', 'AI Tools': '🤖', Coding: '💻', Creative: '🎨', Security: '🔒', Community: '🌐' };
 
   const wrap = (text, width, indent) => {
     const words = (text || '').split(/\s+/);
-    const lines = [];
-    let line = '';
+    const lines = []; let line = '';
     for (const w of words) {
       if ((line + ' ' + w).trim().length > width) { lines.push(line.trim()); line = w; }
       else line += ' ' + w;
@@ -176,46 +286,68 @@ if (args[0] === 'marketplace') {
     return lines.map(l => indent + chalk.dim(l)).join('\n');
   };
 
+  // Filter by category if provided
+  if (categoryFilter) {
+    const matched = categoryFilter.toLowerCase();
+    all = all.filter(s => (s.category || 'community').toLowerCase().includes(matched));
+    if (!all.length) {
+      error(`No skills in category "${categoryFilter}"`);
+      process.exit(1);
+    }
+  }
+
+  // Group by category
+  const byCategory = {};
+  for (const s of all) {
+    const cat = s.category || 'Community';
+    (byCategory[cat] = byCategory[cat] || []).push(s);
+  }
+
   // header
   console.log();
   console.log('  ' + purple.bold('◆ PromptGraph') + chalk.dim('  ·  marketplace'));
-  console.log('  ' + chalk.dim(`${all.length} skills`) + chalk.dim(totalPages > 1 ? `   ·   page ${page}/${totalPages}` : ''));
+  if (categoryFilter) {
+    console.log('  ' + chalk.dim(`${all.length} skills in "${categoryFilter}"`));
+  } else {
+    const cats = Object.keys(byCategory);
+    console.log('  ' + chalk.dim(`${all.length} skills   ·   ${cats.length} categories`));
+  }
   console.log(chalk.dim('  ' + '━'.repeat(W)));
-
-  slice.forEach((s, i) => {
-    const n = chalk.dim(String(startIdx + i + 1).padStart(2));
-    const code = s.code ? chalk.hex('#A78BFA')(s.code) : '';
-    const stars = chalk.yellow('★') + chalk.dim(' ' + (s.stars || 0));
-    console.log();
-    // line 1: number, name ........ code, stars
-    const left = `${n}  ${chalk.bold.white(s.id)}`;
-    console.log('  ' + left + '  ' + code + '   ' + stars);
-    // description
-    console.log(wrap(s.description, W - 6, '      '));
-    // tags
-    if (s.tags?.length) console.log('      ' + chalk.dim(s.tags.map(t => '#' + t).join(' ')));
-  });
-
   console.log();
-  console.log(chalk.dim('  ' + '━'.repeat(W)));
 
-  if (totalPages > 1) {
-    const nav = [];
-    if (page > 1) nav.push(chalk.dim('‹ ') + chalk.cyan(`${bin} marketplace ${page - 1}`));
-    if (page < totalPages) nav.push(chalk.cyan(`${bin} marketplace ${page + 1}`) + chalk.dim(' ›'));
-    console.log('  ' + nav.join('     '));
-    console.log();
+  // Display grouped by category
+  for (const [cat, items] of Object.entries(byCategory)) {
+    const icon = SKILL_CAT_ICONS[cat] || '📦';
+    console.log('  ' + purple.bold(`${icon}  ${cat}`) + chalk.dim(`  (${items.length})`));
+
+    // If not filtering and category has many, paginate within category
+    const showItems = (categoryFilter || items.length <= 5) ? items : items.slice(0, 5);
+    for (const s of showItems) {
+      const code = s.code ? chalk.hex('#A78BFA')(s.code) : '';
+      const stars = chalk.yellow('★') + chalk.dim(' ' + (s.stars || 0));
+      console.log('    ' + chalk.bold.white(s.id) + '   ' + code + '  ' + stars);
+      console.log(wrap(s.description, W - 6, '      '));
+      if (s.tags?.length) console.log('      ' + chalk.dim(s.tags.map(t => '#' + t).join(' ')));
+      console.log('      ' + chalk.dim('install: ') + chalk.cyan(`${bin} install ${s.code || s.id}`));
+      console.log();
+    }
+    if (!categoryFilter && items.length > 5) {
+      console.log('      ' + chalk.dim(`... and ${items.length - 5} more · `) + chalk.cyan(`${bin} marketplace ${cat}`));
+      console.log();
+    }
   }
 
-  const exCode = slice[0]?.code || slice[0]?.id || 'pg-xxxxxx';
+  console.log(chalk.dim('  ' + '━'.repeat(W)));
+  console.log();
+
+  const exCode = all[0]?.code || all[0]?.id || 'pg-xxxxxx';
+  const cats = Object.keys(byCategory).map(c => chalk.cyan(`${bin} marketplace ${c}`)).join('  ');
   console.log(
     boxen(
+      chalk.dim('categories     ') + cats + '\n' +
       chalk.dim('install skill  ') + chalk.white('install ') + chalk.hex('#A78BFA')(exCode) + '\n' +
-      chalk.dim('install bundle ') + chalk.cyan(`pg bundle install <id>`) + '\n' +
-      chalk.dim('add repo       ') + chalk.cyan(`pg bundle add-repo <owner/repo>`) + '\n' +
       chalk.dim('from GitHub    ') + chalk.white('install ') + chalk.hex('#A78BFA')('https://github.com/owner/repo/blob/main/skill.md') + '\n' +
       chalk.dim('publish skill  ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<file.md>') + '\n' +
-      chalk.dim('publish bundle ') + chalk.white('/pg-publish ') + chalk.hex('#A78BFA')('<bundle.json>') + '\n' +
       chalk.dim('view bundles   ') + chalk.cyan(`${bin} marketplace bundles`),
       { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderStyle: 'round', borderColor: '#4B5563', dimBorder: true }
     )
@@ -433,7 +565,9 @@ if (args[0] === 'update') {
 
 if (args[0] === 'reindex') {
   const { indexAll } = await import('./indexer.js');
-  await indexAll();
+  const fast = args.includes('--fast');
+  if (fast) info(chalk.yellow('Fast mode — skipping embeddings (keyword search only)'));
+  await indexAll({ fast });
   process.exit(0);
 }
 

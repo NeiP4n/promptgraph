@@ -32,20 +32,35 @@ export async function search(query, topK = 5) {
       .filter(Boolean);
   }
 
-  // Fallback: brute force (used before first reindex)
+  // Fallback: brute force cosine (used before first reindex)
   const chunks = db.prepare('SELECT skill_id, embedding FROM chunks').all();
-  const bestBySkill = new Map();
-  for (const chunk of chunks) {
-    const score = cosineSimilarity(queryVec, blobToVec(chunk.embedding));
-    const prev = bestBySkill.get(chunk.skill_id);
-    if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
+  if (chunks.length > 0) {
+    const bestBySkill = new Map();
+    for (const chunk of chunks) {
+      const score = cosineSimilarity(queryVec, blobToVec(chunk.embedding));
+      const prev = bestBySkill.get(chunk.skill_id);
+      if (!prev || score > prev) bestBySkill.set(chunk.skill_id, score);
+    }
+    return [...bestBySkill.entries()]
+      .map(([id, score]) => ({ id, score: applyRatingBoost(db, id, score) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+      .map(({ id, score }) => skillWithSnippet(db, id, score))
+      .filter(Boolean);
   }
-  return [...bestBySkill.entries()]
-    .map(([id, score]) => ({ id, score: applyRatingBoost(db, id, score) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
-    .map(({ id, score }) => skillWithSnippet(db, id, score))
-    .filter(Boolean);
+
+  // Fast-mode fallback: FTS5 keyword search (no embeddings)
+  try {
+    const terms = query.replace(/[^\w\s]/g, ' ').trim().split(/\s+/).filter(Boolean).join(' OR ');
+    const rows = db.prepare(
+      `SELECT s.id, bm25(skills_fts) AS score FROM skills_fts
+       JOIN skills s ON skills_fts.id = s.id
+       WHERE skills_fts MATCH ? ORDER BY score LIMIT ?`
+    ).all(terms, topK);
+    return rows.map(r => skillWithSnippet(db, r.id, Math.max(0, 1 + r.score / 10))).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 function skillWithSnippet(db, id, score) {

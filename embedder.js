@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 
 const CACHE_DIR = path.join(os.homedir(), '.claude', '.promptgraph', 'model-cache');
-const BATCH_SIZE = 64;
+const BATCH_SIZE = 256;
 
 let model = null;
 

@@ -46,6 +46,15 @@ export function getDb() {
       success INTEGER DEFAULT 0,
       fail INTEGER DEFAULT 0
     );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(
+      id UNINDEXED,
+      name,
+      description,
+      content,
+      content='skills',
+      content_rowid='rowid'
+    );
   `);
 
   // migrate: add hash column if missing

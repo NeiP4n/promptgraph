@@ -2,9 +2,24 @@ import { spawnSync } from 'child_process';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import https from 'https';
 import { globSync } from 'glob';
-import { indexAll } from './indexer.js';
+import { indexAll, indexSource } from './indexer.js';
 import { loadConfig, saveConfig, SKILLS_STORE_DIR } from './config.js';
+
+function repoExists(repoUrl) {
+  const owner_repo = repoUrl.startsWith('http')
+    ? repoUrl.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
+    : repoUrl;
+  return new Promise(resolve => {
+    const req = https.request(
+      { host: 'github.com', path: `/${owner_repo}`, method: 'HEAD', headers: { 'User-Agent': 'promptgraph-mcp' } },
+      res => resolve(res.statusCode < 400)
+    );
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
 
 // Directories likely to contain skills — checked in priority order
 const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', 'slash-commands', 'custom-commands', 'templates'];
@@ -33,12 +48,27 @@ export async function importFromGitHub(repoUrl) {
   const repoName = url.split('/').slice(-2).join('-').replace('.git', '');
   const dest = path.join(SKILLS_STORE_DIR, 'github', repoName);
 
+  if (!fs.existsSync(dest)) {
+    const exists = await repoExists(repoUrl);
+    if (!exists) throw new Error(`Repository not found (404): ${url}`);
+  }
+
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
   if (fs.existsSync(dest)) {
     console.log(`Updating ${repoName}...`);
-    const pullResult = spawnSync('git', ['-C', dest, 'pull', '--depth=1'], { stdio: 'inherit' });
-    if (pullResult.status !== 0) throw new Error(`git pull failed for ${repoName}`);
+    // fetch + reset handles force-pushes and unrelated histories without re-cloning
+    const fetch = spawnSync('git', ['-C', dest, 'fetch', '--depth=1', 'origin'], { stdio: 'inherit' });
+    if (fetch.status !== 0) throw new Error(`git fetch failed for ${repoName}`);
+    const reset = spawnSync('git', ['-C', dest, 'reset', '--hard', 'origin/HEAD'], { stdio: 'pipe' });
+    if (reset.status !== 0) {
+      // fallback: try origin/main then origin/master
+      const main = spawnSync('git', ['-C', dest, 'reset', '--hard', 'origin/main'], { stdio: 'pipe' });
+      if (main.status !== 0) {
+        const master = spawnSync('git', ['-C', dest, 'reset', '--hard', 'origin/master'], { stdio: 'inherit' });
+        if (master.status !== 0) throw new Error(`git reset failed for ${repoName}`);
+      }
+    }
   } else {
     console.log(`Cloning ${url}...`);
     const cloneResult = spawnSync('git', ['clone', '--depth=1', url, dest], { stdio: 'inherit' });
@@ -69,7 +99,7 @@ export async function importFromGitHub(repoUrl) {
     console.log(`Indexing from: ${skillsDir}`);
   }
 
-  console.log('\nReindexing...');
-  await indexAll();
+  console.log();
+  await indexSource(skillsDir, repoSource);
   console.log(`Done! Imported from ${repoName}/${label}`);
 }

@@ -3,23 +3,24 @@ import path from 'path';
 import os from 'os';
 import readline from 'readline';
 
-export const PROMPTGRAPH_DIR = path.join(os.homedir(), '.claude', '.promptgraph');
-export const SKILLS_STORE_DIR = path.join(os.homedir(), '.claude', 'skills-store');
+const CLAUDE_DIR = path.join(os.homedir(), '.claude');
+export const PROMPTGRAPH_DIR = path.join(CLAUDE_DIR, '.promptgraph');
+export const SKILLS_STORE_DIR = path.join(CLAUDE_DIR, 'skills-store');
 const CONFIG_PATH = path.join(PROMPTGRAPH_DIR, 'config.json');
 
 const DEFAULTS = {
   sources: [
-    { dir: path.join(os.homedir(), '.claude', 'skills-store'), source: 'skills-store' },
-    { dir: path.join(os.homedir(), '.claude', 'skills'), source: 'skills' },
-    { dir: path.join(os.homedir(), '.claude', 'commands'), source: 'commands' },
+    { dir: path.join(CLAUDE_DIR, 'skills-store'), source: 'skills-store' },
+    { dir: path.join(CLAUDE_DIR, 'skills'),    source: 'skills' },
+    { dir: path.join(CLAUDE_DIR, 'commands'),  source: 'commands' },
   ],
 };
+
 
 export function loadConfig() {
   if (fs.existsSync(CONFIG_PATH)) {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   }
-  // deep copy to avoid mutating DEFAULTS
   return JSON.parse(JSON.stringify(DEFAULTS));
 }
 
@@ -44,8 +45,6 @@ export async function promptConfig() {
   if (extra.trim()) {
     const extraDirs = extra.split(',').map(d => d.trim()).filter(Boolean);
     for (const dir of extraDirs) {
-      // Use basename so two different dirs named the same still get distinct ids
-      // if basename truly collides, append a short discriminator from the full path
       const base = path.basename(path.resolve(dir));
       const existing = config.sources.filter(s => s.source === `custom:${base}`);
       const tag = existing.length === 0 ? `custom:${base}` : `custom:${base}-${existing.length}`;
