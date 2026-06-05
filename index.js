@@ -284,10 +284,12 @@ if (args[0] === 'bundle') {
 
     if (doPush) {
       const registryDir = path.join(os.tmpdir(), 'pg-push-registry');
+      const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      const git = (args, opts = {}) => { const r = spawnSync('git', args, { ...opts, env: gitEnv, stdio: 'pipe' }); if (r.status !== 0) { error(r.stderr?.toString() || r.stdout?.toString() || 'git error'); process.exit(1); } return r; };
       if (fs.existsSync(registryDir)) {
-        spawnSync('git', ['-C', registryDir, 'pull'], { stdio: 'inherit' });
+        git(['-C', registryDir, 'pull']);
       } else {
-        spawnSync('git', ['clone', 'https://github.com/NeiP4n/promptgraph-registry.git', registryDir], { stdio: 'inherit' });
+        git(['clone', 'https://github.com/NeiP4n/promptgraph-registry.git', registryDir]);
       }
       const regFile = path.join(registryDir, 'registry.json');
       const reg = JSON.parse(fs.readFileSync(regFile, 'utf8'));
@@ -296,9 +298,11 @@ if (args[0] === 'bundle') {
       reg.updated = new Date().toISOString().slice(0, 10);
       fs.writeFileSync(regFile, JSON.stringify(reg, null, 2) + '\n');
       fs.writeFileSync(path.join(registryDir, 'bundles', `${id}.json`), json + '\n');
-      spawnSync('git', ['-C', registryDir, 'add', '-A'], { stdio: 'inherit' });
-      spawnSync('git', ['-C', registryDir, 'commit', '-m', `bundle: ${name} (${repo})`], { stdio: 'inherit' });
-      spawnSync('git', ['-C', registryDir, 'push'], { stdio: 'inherit' });
+      git(['-C', registryDir, 'config', 'user.email', 'pg-bot@promptgraph.ai']);
+      git(['-C', registryDir, 'config', 'user.name', 'PromptGraph Bot']);
+      git(['-C', registryDir, 'add', '-A']);
+      git(['-C', registryDir, 'commit', '-m', `bundle: ${name} (${repo})`]);
+      git(['-C', registryDir, 'push']);
       success(`Bundle "${id}" pushed to registry`);
     } else {
       const tmp = path.join(os.tmpdir(), `pg-bundle-${id}.json`);
