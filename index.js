@@ -96,12 +96,28 @@ if (args[0] === 'status') {
     sourceCounts.set(row.source, row.n);
   }
   const totalSkills = db.prepare('SELECT COUNT(*) as n FROM skills').get().n;
+  const totalBundles = cfg.sources.filter(s => s.source.startsWith('github:')).length;
+
+  // Fetch marketplace totals for comparison
+  let marketSkills = 0, marketBundles = 0;
+  try {
+    const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
+    const reg = JSON.parse(await fetchText(REGISTRY_URL));
+    marketSkills = reg.skills?.length || 0;
+    marketBundles = reg.bundles?.length || 0;
+  } catch {}
 
   console.log();
   console.log('  ' + purple.bold('◆ PromptGraph Status'));
   console.log('  ' + chalk.gray('─'.repeat(56)));
   console.log();
-  console.log('  ' + chalk.bold.white(`${totalSkills} skills indexed`) + chalk.gray(`  ·  ${cfg.sources.length} sources`));
+
+  // Summary row
+  const skillsLine = chalk.bold.white(`${totalSkills} skills`) +
+    (marketSkills ? chalk.gray(` / ${marketSkills} in registry`) : '');
+  const bundlesLine = chalk.bold.white(`${totalBundles} repos`) +
+    (marketBundles ? chalk.gray(` / ${marketBundles} in marketplace`) : '');
+  console.log('  ' + skillsLine + chalk.gray('   ·   ') + bundlesLine);
   console.log();
 
   // Sources grouped by type
