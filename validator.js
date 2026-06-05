@@ -89,6 +89,8 @@ export function validateSkill(filePath) {
 
 const BUNDLE_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
+const GITHUB_REPO_RE = /^(https?:\/\/github\.com\/[\w.-]+\/[\w.-]+|[\w.-]+\/[\w.-]+)$/;
+
 export function validateBundle(def) {
   const errors = [];
   const warnings = [];
@@ -107,12 +109,18 @@ export function validateBundle(def) {
     errors.push('Missing or too short field: description (min 15 chars)');
   }
 
-  if (!Array.isArray(def.skills) || def.skills.length < 2) {
-    errors.push('Field "skills" must be an array with at least 2 skill IDs');
+  if (def.repo_url) {
+    if (!GITHUB_REPO_RE.test(def.repo_url)) {
+      errors.push(`Invalid repo_url "${def.repo_url}". Use "owner/repo" or a full GitHub URL.`);
+    }
   } else {
-    for (const s of def.skills) {
-      if (typeof s !== 'string' || !BUNDLE_ID_RE.test(s)) {
-        errors.push(`Invalid skill id in bundle: "${s}"`);
+    if (!Array.isArray(def.skills) || def.skills.length < 1) {
+      errors.push('Field "skills" must be an array with at least 1 skill ID (or use repo_url instead)');
+    } else {
+      for (const s of def.skills) {
+        if (typeof s !== 'string' || !BUNDLE_ID_RE.test(s)) {
+          errors.push(`Invalid skill id in bundle: "${s}"`);
+        }
       }
     }
   }

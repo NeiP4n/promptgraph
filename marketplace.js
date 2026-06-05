@@ -7,6 +7,7 @@ import { createRequire } from 'module';
 import { getDb } from './db.js';
 import { validateSkill, validateBundle } from './validator.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
+import { importFromGitHub } from './github-import.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
@@ -208,6 +209,11 @@ export async function installBundle(bundleId) {
       (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
     );
     if (!bundle) return { error: `No bundle matching "${bundleId}"` };
+
+    if (bundle.repo_url) {
+      await importFromGitHub(bundle.repo_url);
+      return { success: true, bundle: bundle.name, type: 'repo_import', repo_url: bundle.repo_url };
+    }
 
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
     ensureMarketplaceSource();
