@@ -18,8 +18,8 @@ const SKIP_FILENAMES = new Set([
   'pull_request_template', 'issue_template', 'funding',
 ]);
 
-// Filename patterns that are never skills
-const SKIP_FILENAME_RE = /^(_|\.)|^v?\d+[\.\-]\d+|^\d{4}[\-_]\d{2}|^readme|^license|^changelog|^contributing/i;
+// Filename patterns that are never skills — readme* catches ALL variants (readme_de, readme_zh-CN, etc.)
+const SKIP_FILENAME_RE = /^(_|\.)|^v?\d+[\.\-]\d+|^\d{4}[\-_]\d{2}|^readme|^license|^changelog|^contributing|^code.of.conduct|^security|^authors|^credits|^disclaimer|^notice|^copying|^warranty|^promotion|^funding/i;
 
 // Path segments that indicate the file is NOT a skill
 const SKIP_DIRS = new Set([
@@ -30,7 +30,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 // First-header values that signal documentation, not a skill
-const DOC_FIRST_HEADERS = /^(overview|introduction|about|background|welcome|getting started|what is|why |table of contents|toc|foreword|preface)/i;
+const DOC_FIRST_HEADERS = /^(overview|introduction|about|background|welcome|getting started|what is|why |table of contents|toc|foreword|preface|readme)/i;
 
 // Imperative verbs commonly found in skill headers
 const IMPERATIVE_HEADERS = /\b(run|use|apply|execute|check|debug|fix|create|add|remove|deploy|test|write|generate|analyze|review|refactor|optimize|configure|setup|install|scan|audit|validate|search|find|extract|parse)\b/i;
@@ -119,6 +119,12 @@ export function isSkillFile(filePath, raw) {
 
   try {
     if (!raw) raw = fs.readFileSync(filePath, 'utf8');
+
+    // Hard-reject: content starts with README header or badge lines
+    const firstLines = raw.trimStart().slice(0, 300);
+    if (/^#\s*readme\b/i.test(firstLines)) return false;
+    if (/!\[.*\]\(https?:\/\/(img\.shields\.io|badge\.fury|travis-ci|github\.com\/[^)]+\/badge)/i.test(firstLines)) return false;
+
     return skillScore(raw, base) >= 3;
   } catch {
     return false;
