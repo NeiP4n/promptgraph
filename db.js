@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
+import { PROMPTGRAPH_DIR } from './config.js';
 
-const DB_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'promptgraph.db');
+const DB_PATH = path.join(PROMPTGRAPH_DIR, 'promptgraph.db');
 
 let _db = null;
 

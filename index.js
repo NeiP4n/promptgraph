@@ -261,6 +261,15 @@ if (args[0] === 'setup') {
 if (args[0] === 'init') {
   const { promptConfig } = await import('./config.js');
   const { indexAll } = await import('./indexer.js');
+  const os = await import('os');
+  const fs = await import('fs');
+  const path = await import('path');
+  const commandsDir = path.default.join(os.default.homedir(), '.claude', 'commands');
+  if (!fs.default.existsSync(commandsDir)) {
+    console.log(chalk.yellow('⚠') + '  ' + chalk.gray('~/.claude/commands/ not found — is Claude Code installed?'));
+    console.log(chalk.gray('   Install from: https://claude.ai/download\n'));
+  }
+  console.log(chalk.gray('  Downloading embedding model (~23 MB, one-time)...\n'));
   const config = await promptConfig();
   await indexAll();
   console.log();
@@ -285,6 +294,7 @@ const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
 const { search, getContext, getCallers, getCallees, getImpact, listAll } = await import('./search.js');
+const { loadConfig: _loadConfig, saveConfig: _saveConfig } = await import('./config.js');
 const { startWatcher } = await import('./watcher.js');
 const { browseMarketplace, installSkill, publishSkill, getTopRated, recordUse, recordSuccess, recordFail, browseBundles, installBundle } = await import('./marketplace.js');
 
@@ -408,6 +418,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['bundle_id'],
       },
     },
+    {
+      name: 'pg_config',
+      description: 'Get or update PromptGraph config. action="get" returns current sources. action="add_source" adds a directory.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['get', 'add_source', 'remove_source'] },
+          dir: { type: 'string', description: 'Directory path (for add_source)' },
+          source: { type: 'string', description: 'Source label (for add_source/remove_source)' },
+        },
+        required: ['action'],
+      },
+    },
   ],
 }));
 
@@ -435,6 +458,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pg_marketplace_publish': result = await publishSkill(args.file_path); break;
       case 'pg_bundle_browse': result = await browseBundles(args.top_k || 20); break;
       case 'pg_bundle_install': result = await installBundle(args.bundle_id); break;
+      case 'pg_config': {
+        const cfg = _loadConfig();
+        if (args.action === 'get') {
+          result = { sources: cfg.sources };
+        } else if (args.action === 'add_source') {
+          if (!args.dir || !args.source) throw new Error('dir and source required for add_source');
+          if (cfg.sources.find(s => s.source === args.source)) throw new Error(`Source "${args.source}" already exists`);
+          cfg.sources.push({ dir: args.dir, source: args.source });
+          _saveConfig(cfg);
+          result = { ok: true, sources: cfg.sources };
+        } else if (args.action === 'remove_source') {
+          if (!args.source) throw new Error('source required for remove_source');
+          const before = cfg.sources.length;
+          cfg.sources = cfg.sources.filter(s => s.source !== args.source);
+          if (cfg.sources.length === before) throw new Error(`Source "${args.source}" not found`);
+          _saveConfig(cfg);
+          result = { ok: true, sources: cfg.sources };
+        } else {
+          throw new Error(`Unknown action: ${args.action}`);
+        }
+        break;
+      }
       default: throw new Error(`Unknown tool: ${name}`);
     }
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };

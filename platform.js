@@ -5,32 +5,31 @@ import { spawnSync } from 'child_process';
 
 const HOME = os.homedir();
 
+// Shared helper: write standard mcpServers entry (Claude Code, Cursor, Windsurf, Codex format)
+function addStdMcp(configPath, defaults = {}) {
+  const json = { ...defaults, ...readJson(configPath) };
+  json.mcpServers = json.mcpServers || {};
+  json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeJson(configPath, json);
+}
+
 export const PLATFORMS = {
   'claude-code': {
     name: 'Claude Code',
     configPath: path.join(HOME, '.claude', 'settings.json'),
-    addMcp: (config, serverPath) => {
-      const json = readJson(config.configPath);
-      json.mcpServers = json.mcpServers || {};
-      json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addStdMcp(config.configPath),
   },
   'claude-desktop': {
     name: 'Claude Desktop',
     configPath: getClaudeDesktopConfig(),
-    addMcp: (config, serverPath) => {
-      const json = readJson(config.configPath);
-      json.mcpServers = json.mcpServers || {};
-      json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addStdMcp(config.configPath),
   },
   'cline': {
     name: 'Cline (VS Code)',
     configPath: path.join(HOME, '.vscode', 'mcp.json'),
-    addMcp: (config, serverPath) => {
-      const json = readJson(config.configPath) || { servers: {} };
+    addMcp: (config) => {
+      const json = readJson(config.configPath) || {};
       json.servers = json.servers || {};
       json.servers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
       fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
@@ -40,33 +39,17 @@ export const PLATFORMS = {
   'codex': {
     name: 'OpenAI Codex CLI',
     configPath: path.join(HOME, '.codex', 'config.json'),
-    addMcp: (config, serverPath) => {
-      const json = readJson(config.configPath) || {};
-      json.mcpServers = json.mcpServers || {};
-      json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
-      fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addStdMcp(config.configPath),
   },
   'cursor': {
     name: 'Cursor',
     configPath: path.join(HOME, '.cursor', 'mcp.json'),
-    addMcp: (config, serverPath) => {
-      const json = readJson(config.configPath) || { mcpServers: {} };
-      json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
-      fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addStdMcp(config.configPath),
   },
   'windsurf': {
     name: 'Windsurf',
     configPath: path.join(HOME, '.codeium', 'windsurf', 'mcp_config.json'),
-    addMcp: (config, serverPath) => {
-      const json = readJson(config.configPath) || { mcpServers: {} };
-      json.mcpServers.promptgraph = { command: 'npx', args: ['promptgraph-mcp'] };
-      fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
-      writeJson(config.configPath, json);
-    },
+    addMcp: (config) => addStdMcp(config.configPath),
   },
   'opencode': {
     name: 'OpenCode',
@@ -74,11 +57,7 @@ export const PLATFORMS = {
     addMcp: (config) => {
       const json = readJson(config.configPath) || {};
       json.mcp = json.mcp || {};
-      json.mcp.promptgraph = {
-        type: 'local',
-        command: ['npx', 'promptgraph-mcp', 'mcp'],
-        enabled: true,
-      };
+      json.mcp.promptgraph = { type: 'local', command: ['npx', 'promptgraph-mcp', 'mcp'], enabled: true };
       fs.mkdirSync(path.dirname(config.configPath), { recursive: true });
       writeJson(config.configPath, json);
     },
@@ -104,12 +83,8 @@ function isOpenCodeInstalled() {
 }
 
 function getOpenCodeConfig() {
-  if (process.platform === 'win32') {
-    return path.join(HOME, 'AppData', 'Roaming', 'opencode', 'opencode.json');
-  }
-  if (process.platform === 'darwin') {
-    return path.join(HOME, 'Library', 'Application Support', 'opencode', 'opencode.json');
-  }
+  if (process.platform === 'win32') return path.join(HOME, 'AppData', 'Roaming', 'opencode', 'opencode.json');
+  if (process.platform === 'darwin') return path.join(HOME, 'Library', 'Application Support', 'opencode', 'opencode.json');
   return path.join(HOME, '.config', 'opencode', 'opencode.json');
 }
 

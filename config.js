@@ -3,7 +3,9 @@ import path from 'path';
 import os from 'os';
 import readline from 'readline';
 
-const CONFIG_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'config.json');
+export const PROMPTGRAPH_DIR = path.join(os.homedir(), '.claude', '.promptgraph');
+export const SKILLS_STORE_DIR = path.join(os.homedir(), '.claude', 'skills-store');
+const CONFIG_PATH = path.join(PROMPTGRAPH_DIR, 'config.json');
 
 const DEFAULTS = {
   sources: [

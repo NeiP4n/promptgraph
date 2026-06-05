@@ -1,15 +1,19 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import https from 'https';
 import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
+import { createRequire } from 'module';
 import { getDb } from './db.js';
 import { validateSkill } from './validator.js';
-import { loadConfig, saveConfig } from './config.js';
+import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
-const SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills-store', 'marketplace');
+const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
+
+const _require = createRequire(import.meta.url);
+const PKG_VERSION = (() => { try { return _require('./package.json').version; } catch { return '1.x'; } })();
+const UA = `promptgraph-mcp/${PKG_VERSION}`;
 
 // Deterministic short code from an id. Same id always yields the same code,
 // so codes auto-generate — no need to assign them by hand.
@@ -20,7 +24,7 @@ export function codeFor(id) {
 // node:https GET — reliable and fast on Windows (undici fetch can hang ~10s there).
 function httpGet(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'promptgraph-mcp' }, timeout: 8000, family: 4 }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': UA }, timeout: 8000, family: 4 }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return httpGet(res.headers.location).then(resolve, reject);
       }
@@ -43,18 +47,17 @@ async function rawFetch(url) {
   try {
     return await httpGet(url);
   } catch {
-    const res = await fetch(url, { headers: { 'User-Agent': 'promptgraph-mcp' } });
+    const res = await fetch(url, { headers: { 'User-Agent': UA } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
   }
 }
 
 // Disk cache for the registry (network to GitHub raw can be slow on some networks).
-const CACHE_DIR = path.join(os.homedir(), '.claude', '.promptgraph');
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function fetchText(url) {
-  const cacheFile = path.join(CACHE_DIR, 'registry-cache.json');
+  const cacheFile = path.join(PROMPTGRAPH_DIR, 'registry-cache.json');
   const isRegistry = url === REGISTRY_URL;
 
   if (isRegistry && fs.existsSync(cacheFile)) {
@@ -173,10 +176,12 @@ export async function installBundle(bundleId) {
     const installed = [];
     const failed = [];
 
+    const delay = (ms) => new Promise(r => setTimeout(r, ms));
     for (const skillId of bundle.skills || []) {
       const skill = registry.skills?.find(s => s.id === skillId);
       if (!skill?.raw_url) { failed.push(skillId); continue; }
       try {
+        if (installed.length > 0) await delay(300); // rate limit: 300ms between requests
         const content = await fetchText(skill.raw_url);
         const dest = path.join(SKILLS_DIR, `${skillId}.md`);
         const tmpPath = dest + '.tmp';

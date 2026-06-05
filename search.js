@@ -28,10 +28,7 @@ export async function search(query, topK = 5) {
       .map(([id, score]) => ({ id, score: applyRatingBoost(db, id, score) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
-      .map(({ id, score }) => {
-        const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
-        return skill ? { ...skill, score } : null;
-      })
+      .map(({ id, score }) => skillWithSnippet(db, id, score))
       .filter(Boolean);
   }
 
@@ -47,11 +44,16 @@ export async function search(query, topK = 5) {
     .map(([id, score]) => ({ id, score: applyRatingBoost(db, id, score) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)
-    .map(({ id, score }) => {
-      const skill = db.prepare('SELECT id, name, description, path, source FROM skills WHERE id = ?').get(id);
-      return skill ? { ...skill, score } : null;
-    })
+    .map(({ id, score }) => skillWithSnippet(db, id, score))
     .filter(Boolean);
+}
+
+function skillWithSnippet(db, id, score) {
+  const skill = db.prepare('SELECT id, name, description, path, source, content FROM skills WHERE id = ?').get(id);
+  if (!skill) return null;
+  const { content, ...rest } = skill;
+  const snippet = content?.replace(/^---[\s\S]*?---\n?/, '').trim().slice(0, 400) || '';
+  return { ...rest, score, snippet };
 }
 
 export function getContext(nameOrId) {

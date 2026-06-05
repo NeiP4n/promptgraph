@@ -1,9 +1,9 @@
 import { LocalIndex } from 'vectra';
 import path from 'path';
-import os from 'os';
 import { getDb, blobToVec } from './db.js';
+import { PROMPTGRAPH_DIR } from './config.js';
 
-const INDEX_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'hnsw-index');
+const INDEX_PATH = path.join(PROMPTGRAPH_DIR, 'hnsw-index');
 
 let _index = null;
 

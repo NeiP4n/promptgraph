@@ -11,13 +11,13 @@ PromptGraph is an MCP server that gives Claude Code a semantic skill index — v
 
 ## Why
 
-Claude Code dumps every file in `~/.claude/commands/` into the system prompt — every session, every message. At 40+ skills that's **20,000–50,000 wasted tokens before you say a word.**
+Claude Code loads skill metadata from `~/.claude/commands/` each session. With 40+ skills that's thousands of tokens in routing overhead before you say a word. More importantly, when Claude loads and executes a full skill file (typically 1,000–5,000 tokens each), the cost multiplies fast.
 
-PromptGraph replaces that with one tiny router skill (`~150 tokens`) and a local vector index. When you ask something, Claude calls `pg_search` → gets the right skill path → reads only that file.
+PromptGraph replaces that with one tiny router skill (`~150 tokens`) and a local vector index. Claude calls `pg_search` → gets the right skill path + a content snippet → reads only that file when needed.
 
 ```
-Before:  all 40 skills loaded  →  ~40,000 tokens wasted
-After:   1 router + 1 match    →  ~300 tokens total
+Before:  route across all 40 skills  →  40 × read overhead
+After:   1 pg_search call + snippet  →  read only what you need
 ```
 
 ---
