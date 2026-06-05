@@ -33,18 +33,41 @@ function repoExists(ownerRepo) {
   });
 }
 
-// Ask GitHub API which skill subdir exists (without cloning anything)
+// Ask GitHub API which subdir to use (without cloning anything).
+// Returns { subdir, label } or null (use root).
 async function detectSkillsDirFromAPI(ownerRepo) {
   try {
     const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents`);
     const entries = JSON.parse(json);
-    const dirs = new Set(entries.filter(e => e.type === 'dir').map(e => e.name.toLowerCase()));
+
+    // 1. Known skill dir names (priority order)
+    const dirMap = new Map(entries.filter(e => e.type === 'dir').map(e => [e.name.toLowerCase(), e.name]));
     for (const d of SKILL_DIRS) {
-      if (dirs.has(d)) return d;
+      if (dirMap.has(d)) return { subdir: dirMap.get(d), label: d };
     }
+
+    // 2. Any subdir with 2+ .md files — pick the one with most .md files
+    const subdirCandidates = entries.filter(e => e.type === 'dir' && !SKIP_DIRS_API.has(e.name.toLowerCase()));
+    let best = null, bestCount = 0;
+    for (const dir of subdirCandidates) {
+      try {
+        const sub = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dir.name}`);
+        const subEntries = JSON.parse(sub);
+        const mdCount = subEntries.filter(e => e.type === 'file' && e.name.endsWith('.md')).length;
+        if (mdCount >= 2 && mdCount > bestCount) { best = dir.name; bestCount = mdCount; }
+      } catch {}
+    }
+    if (best) return { subdir: best, label: best };
+
   } catch {}
-  return null; // use repo root
+  return null; // no good subdir found — use root
 }
+
+const SKIP_DIRS_API = new Set([
+  '.github', 'docs', 'doc', 'documentation', 'examples', 'example',
+  'tests', 'test', 'assets', 'images', 'img', 'media', 'static',
+  'node_modules', 'vendor', 'dist', 'build', '.git',
+]);
 
 function git(args, cwd, stdio = 'inherit') {
   return spawnSync('git', args, { cwd, stdio });
@@ -142,21 +165,22 @@ export async function importFromGitHub(repoUrl) {
 
   if (isNew) {
     // Detect skills dir via API before cloning
-    console.log(`Detecting skills directory for ${ownerRepo}...`);
-    skillsSubdir = await detectSkillsDirFromAPI(ownerRepo);
+    process.stdout.write(`Detecting skills directory for ${ownerRepo}... `);
+    const detected = await detectSkillsDirFromAPI(ownerRepo);
+    skillsSubdir = detected?.subdir || null;
 
     if (skillsSubdir) {
+      console.log(`found: ${detected.label}/`);
       console.log(`Sparse-cloning ${url} (${skillsSubdir}/ only)...`);
       cloneOk = sparseClone(url, dest, skillsSubdir);
       if (!cloneOk) {
-        // Sparse failed — fall back to full clone
         console.log('Sparse-checkout failed, falling back to full clone...');
         fs.rmSync(dest, { recursive: true, force: true });
         cloneOk = fullClone(url, dest);
         skillsSubdir = null;
       }
     } else {
-      console.log(`Cloning ${url}...`);
+      console.log(`no subdir found, cloning root...`);
       cloneOk = fullClone(url, dest);
     }
 
