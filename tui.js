@@ -153,9 +153,9 @@ function render(state, installedSet = new Set()) {
       ? item.skillCount
         ? blue((item.skillCount + ' sk').padEnd(8))
         : item.repo_url
-          ? blue('GitHub  ')
+          ? chalk.hex('#3B82F6')('↗ GitHub')
           : dim(((item.skills?.length || 0) + ' sk').padEnd(8))
-      : dim((item.code || '').padEnd(8));
+      : chalk.hex('#A78BFA')((item.code || '').padEnd(10));
     const desc = dim(truncate(item.description, Math.max(10, DESC_W)));
 
     write(bg + `  ${arrow} ${type} ${badge} ${nameCol}  ${extra}  ${desc}` + reset + CLEAR_EOL + '\n');
@@ -188,16 +188,37 @@ function render(state, installedSet = new Set()) {
 
 // ── clamp scroll ─────────────────────────────────────────────────────────────
 
+// Count how many screen rows items[start..end] occupy (including category headers)
+function countVisibleRows(items, start, end) {
+  let rows = 0;
+  let lastCat = start > 0 ? items[start - 1]?.category : null;
+  for (let i = start; i < end && i < items.length; i++) {
+    if (items[i].category !== lastCat) { rows++; lastCat = items[i].category; }
+    rows++;
+  }
+  return rows;
+}
+
 function clampScroll(state) {
   const { rows } = termSize();
   const HEADER_ROWS = 4, FOOTER_ROWS = 3;
   const LIST_ROWS = rows - HEADER_ROWS - FOOTER_ROWS;
   const { cursor, items } = state;
 
-  // ensure cursor visible — approximate (category headers add extra rows)
-  if (cursor < state.scroll) state.scroll = cursor;
-  if (cursor >= state.scroll + LIST_ROWS - 2) state.scroll = cursor - LIST_ROWS + 3;
   if (state.scroll < 0) state.scroll = 0;
+  if (state.scroll > cursor) state.scroll = cursor;
+
+  // Check if cursor is visible from current scroll
+  const visibleRows = countVisibleRows(items, state.scroll, cursor + 1);
+  if (visibleRows > LIST_ROWS - 1) {
+    // Cursor is below visible area — scroll forward until it fits
+    while (state.scroll < cursor) {
+      state.scroll++;
+      const v = countVisibleRows(items, state.scroll, cursor + 1);
+      if (v <= LIST_ROWS - 1) break;
+    }
+  }
+
   if (state.scroll >= items.length) state.scroll = Math.max(0, items.length - 1);
 }
 
