@@ -238,6 +238,19 @@ function cleanupRepoDir(dirPath, SKIP_RE) {
   return removed;
 }
 
+// Recursively remove empty directories
+function removeEmptyDirs(dirPath) {
+  let entries;
+  try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (entry.name === '.git') continue;
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(dirPath, entry.name);
+    removeEmptyDirs(fullPath);
+    try { if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath); } catch {}
+  }
+}
+
 // Update sparse repo — fetch + reset
 function sparseUpdate(dest, subdir) {
   const fetch = git(['fetch', '--depth=1', 'origin'], dest);
@@ -352,6 +365,21 @@ export async function importFromGitHub(repoUrl) {
 
   // Remove doc files anywhere in the cloned tree
   cleanupRepoRoot(dest);
+
+  // Validate every .md file — delete those that fail
+  const allMd = globSync(`${dest}/**/*.md`);
+  let removedInvalid = 0;
+  for (const fp of allMd) {
+    const v = validateSkill(fp);
+    if (!v.ok) {
+      try { fs.unlinkSync(fp); removedInvalid++; } catch {}
+    }
+  }
+  if (removedInvalid > 0) {
+    console.log(`Removed ${removedInvalid} invalid .md files (failed validation)`);
+    // Clean up empty dirs left behind
+    removeEmptyDirs(dest);
+  }
 
   const { dir: skillsDir, label } = detectSkillsDirLocal(dest);
   const mdFiles = globSync(`${skillsDir}/**/*.md`);
