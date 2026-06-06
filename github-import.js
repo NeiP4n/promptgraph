@@ -6,6 +6,7 @@ import { globSync } from 'glob';
 import { indexAll, indexSource } from './indexer.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
 import { validateSkill } from './validator.js';
+import { isSkillFile } from './parser.js';
 
 const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', 'slash-commands', 'custom-commands', 'templates'];
 
@@ -366,17 +367,17 @@ export async function importFromGitHub(repoUrl) {
   // Remove doc files anywhere in the cloned tree
   cleanupRepoRoot(dest);
 
-  // Validate every .md file — delete those that fail
+  // Validate every .md file via parser scoring — delete low-quality files
+  // Uses the same isSkillFile()/skillScore() as the indexer (threshold ≥ 3)
   const allMd = globSync(`${dest}/**/*.md`);
   let removedInvalid = 0;
   for (const fp of allMd) {
-    const v = validateSkill(fp);
-    if (!v.ok) {
+    if (!isSkillFile(fp)) {
       try { fs.unlinkSync(fp); removedInvalid++; } catch {}
     }
   }
   if (removedInvalid > 0) {
-    console.log(`Removed ${removedInvalid} invalid .md files (failed validation)`);
+    console.log(`Removed ${removedInvalid} low-quality .md files (skillScore < 3)`);
     // Clean up empty dirs left behind
     removeEmptyDirs(dest);
   }
