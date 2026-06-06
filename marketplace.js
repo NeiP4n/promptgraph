@@ -561,9 +561,38 @@ export function pruneInvalidRepos() {
 
 // ── Trust level system ─────────────────────────────────────────────────────────
 const VALID_TRUST_LEVELS = ['verified', 'official', 'community', 'trusted', 'unknown']
+const TRUST_LEVEL_BOOST = { verified: 1.15, official: 1.10, trusted: 1.05, community: 1.0, unknown: 0.95 }
 
-function calcPopularity(downloads = 0, rating = 0) {
-  return Math.round((downloads || 0) * ((rating || 0) + 1) * 100) / 100
+// Popularity = log(downloads+1) × (rating+1), then decayed by age (days since last_update, halved every 180 days)
+function calcPopularity(downloads = 0, rating = 0, lastUpdateStr = null) {
+  const logDownloads = Math.log10((downloads || 0) + 1)
+  const ratingFactor = ((rating || 0) + 1) / 6  // normalised to 0–1
+  let pop = logDownloads * ratingFactor * 100
+
+  if (lastUpdateStr) {
+    const daysSince = (Date.now() - new Date(lastUpdateStr + 'Z').getTime()) / 86400000
+    if (daysSince > 0) {
+      pop *= Math.pow(0.5, daysSince / 180)  // half-life 180 days
+    }
+  }
+  return Math.round(pop * 100) / 100
+}
+
+// Auto-promote threshold: downloads at which a skill graduates to the next trust level
+const AUTO_PROMOTE_THRESHOLDS = [
+  { minDownloads: 10000, level: 'verified' },
+  { minDownloads: 1000,  level: 'official' },
+  { minDownloads: 100,   level: 'trusted' },
+]
+
+function autoPromote(downloads, currentLevel) {
+  const rank = VALID_TRUST_LEVELS.indexOf(currentLevel || 'unknown')
+  for (const t of AUTO_PROMOTE_THRESHOLDS) {
+    if (downloads >= t.minDownloads && VALID_TRUST_LEVELS.indexOf(t.level) > rank) {
+      return t.level
+    }
+  }
+  return null
 }
 
 export async function setTrustLevel(name, level) {
@@ -586,27 +615,35 @@ export async function getByTrustLevel(level) {
     return { error: `Invalid trust level "${level}". Must be one of: ${VALID_TRUST_LEVELS.join(', ')}` }
   }
   if (level) {
-    return db.prepare('SELECT * FROM registry_entries WHERE trust_level = ? ORDER BY id').all(level)
+    return db.prepare('SELECT * FROM registry_entries WHERE trust_level = ? ORDER BY downloads DESC, popularity DESC').all(level)
   }
-  return db.prepare('SELECT * FROM registry_entries ORDER BY id').all()
+  return db.prepare('SELECT * FROM registry_entries ORDER BY downloads DESC, popularity DESC').all()
 }
 
 export async function incrementDownloads(name) {
   const db = getDb()
   const id = String(name)
-  const existing = db.prepare('SELECT downloads, rating FROM registry_entries WHERE id = ?').get(id)
+  const existing = db.prepare('SELECT downloads, rating, last_update, trust_level FROM registry_entries WHERE id = ?').get(id)
   if (existing) {
     const newDownloads = (existing.downloads || 0) + 1
-    const pop = calcPopularity(newDownloads, existing.rating || 0)
+    const pop = calcPopularity(newDownloads, existing.rating || 0, existing.last_update)
     db.prepare('UPDATE registry_entries SET downloads = ?, popularity = ?, last_update = datetime(\'now\') WHERE id = ?')
       .run(newDownloads, pop, id)
+
+    // Auto-promote if threshold crossed
+    const newLevel = autoPromote(newDownloads, existing.trust_level)
+    if (newLevel) {
+      db.prepare('UPDATE registry_entries SET trust_level = ? WHERE id = ?').run(newLevel, id)
+    }
   } else {
     const pop = calcPopularity(1, 0)
-    db.prepare('INSERT INTO registry_entries (id, downloads, popularity, last_update) VALUES (?, 1, ?, datetime(\'now\'))')
+    db.prepare('INSERT INTO registry_entries (id, downloads, popularity, trust_level, last_update) VALUES (?, 1, ?, \'unknown\', datetime(\'now\'))')
       .run(id, pop)
   }
   return { ok: true }
 }
+
+export { VALID_TRUST_LEVELS, TRUST_LEVEL_BOOST, calcPopularity, autoPromote }
 
 export async function rateSkill(name, rating) {
   const db = getDb()

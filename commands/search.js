@@ -1,14 +1,36 @@
 import { colors, banner, success, error, info, section, table } from '../cli.js';
 import chalk from 'chalk';
+import { VALID_TRUST_LEVELS } from '../marketplace.js';
 
 export default async function handler(args, bin) {
-  const query = args.slice(1).join(' ');
-  if (!query) { error('Usage: ' + bin + ' search <query>'); process.exit(1); }
+  const trustFilter = args.find(a => a.startsWith('--trust='));
+  const filteredArgs = args.filter(a => !a.startsWith('--trust='));
+  const query = filteredArgs.slice(1).join(' ');
+  if (!query) { error('Usage: ' + bin + ' search <query> [--trust=verified]'); process.exit(1); }
+
+  if (trustFilter) {
+    const level = trustFilter.split('=')[1];
+    if (!VALID_TRUST_LEVELS.includes(level)) {
+      error('Invalid trust level. Valid: ' + VALID_TRUST_LEVELS.join(', '));
+      process.exit(1);
+    }
+  }
+
   const { search: searchSkills } = await import('../search.js');
+  const { getByTrustLevel } = await import('../marketplace.js');
   const spin = (await import('../cli.js')).spinner('Searching...');
   spin.start();
-  const results = await searchSkills(query, 10);
+  let results = await searchSkills(query, 10);
   spin.stop();
+
+  // Apply trust filter after search
+  if (trustFilter) {
+    const level = trustFilter.split('=')[1];
+    const entries = await getByTrustLevel(level);
+    const allowed = new Set(entries.map(e => e.id));
+    results = results.filter(r => allowed.has(r.id));
+  }
+
   if (!results.length) { info('No results for: ' + query); process.exit(0); }
   const purple = chalk.hex('#7C3AED');
   console.log();

@@ -1,6 +1,7 @@
 import { embed, cosineSimilarity } from './embedder.js';
 import { getDb, blobToVec } from './db.js';
 import { annSearch } from './ann.js';
+import { TRUST_LEVEL_BOOST } from './marketplace.js';
 
 function getHybridWeights(query) {
   const hasTechTerms = /[A-Z]|\d/.test(query);
@@ -10,11 +11,25 @@ function getHybridWeights(query) {
 
 function applyRatingBoost(db, id, score) {
   const r = db.prepare('SELECT success, fail FROM ratings WHERE skill_id = ?').get(id);
+  let boost = 1.0;
   if (r && (r.success + r.fail) > 3) {
-    const rating = r.success / (r.success + r.fail);
-    return score * (0.85 + 0.15 * rating);
+    boost *= (0.85 + 0.15 * (r.success / (r.success + r.fail)));
   }
-  return score;
+
+  // Trust level boost (verified/official/trusted rank higher)
+  const re = db.prepare('SELECT trust_level, popularity FROM registry_entries WHERE id = ?').get(id);
+  if (re) {
+    boost *= (TRUST_LEVEL_BOOST[re.trust_level] || 1.0);
+    // Popularity bump: top 20% of skills get +5%, rest unchanged
+    if (re.popularity > 0) {
+      const top20 = db.prepare('SELECT popularity FROM registry_entries ORDER BY popularity DESC LIMIT 1').get();
+      if (top20 && re.popularity >= top20.popularity * 0.2) {
+        boost *= 1.05;
+      }
+    }
+  }
+
+  return score * boost;
 }
 
 function normalizeBM25(raw) {

@@ -2,6 +2,13 @@
 
 ## 2.6.1 (2026-06-07)
 
+### Reputation & Trust
+- **calcPopularity rewritten**: `downloads * (rating+1)` → `log10(downloads+1) × normalized_rating × 100` with 180-day half-life time decay. Downloads no longer dominate quality.
+- **Trust level now boosts search ranking**: `verified ×1.15`, `official ×1.10`, `trusted ×1.05`, `community ×1.0`, `unknown ×0.95` — applied in `applyRatingBoost()`
+- **Popularity boost in search**: top 20% of skills by popularity get +5% score bump
+- **Auto-promotion**: skills auto-graduate trust levels at 100 (`trusted`) / 1000 (`official`) / 10000 (`verified`) downloads
+- **CLI `--trust` filter**: `pg search deploy --trust=verified` — filters results by trust level
+
 ### Improvements
 - **HNSW is now default vector store** — was opt-in `PG_VECTOR_STORE=hnsw`, now default. Set `PG_VECTOR_STORE=flat` for brute-force fallback
 - **MAX_CHUNKS raised 4 → 8** — long skill docs now keep more context. Configurable via `PG_MAX_CHUNKS` env var
