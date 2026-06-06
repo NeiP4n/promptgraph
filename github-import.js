@@ -4,7 +4,8 @@ import fs from 'fs';
 import https from 'https';
 import { globSync } from 'glob';
 import { indexAll, indexSource } from './indexer.js';
-import { loadConfig, saveConfig, SKILLS_STORE_DIR } from './config.js';
+import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
+import { validateSkill } from './validator.js';
 
 const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', 'slash-commands', 'custom-commands', 'templates'];
 
@@ -31,6 +32,58 @@ function repoExists(ownerRepo) {
     req.on('error', () => resolve(false));
     req.end();
   });
+}
+
+// Validate all .md files in a repo's skills subdir against validateSkill().
+// Returns { ok, errors[], warnings[] }.
+export async function validateRepoSkills(ownerRepo) {
+  const errors = [];
+  const warnings = [];
+
+  const detected = await detectSkillsDirFromAPI(ownerRepo);
+  if (!detected) {
+    return { ok: false, errors: [`No skills directory found in ${ownerRepo}`], warnings: [] };
+  }
+
+  const subdir = detected.subdir;
+  const listUrl = `https://api.github.com/repos/${ownerRepo}/contents/${subdir}`;
+  let entries;
+  try {
+    const json = await httpsGet(listUrl);
+    entries = JSON.parse(json);
+  } catch (e) {
+    return { ok: false, errors: [`Failed to list ${subdir}/ contents: ${e.message}`], warnings: [] };
+  }
+
+  const mdFiles = entries.filter(e => e.type === 'file' && e.name.endsWith('.md'));
+  if (mdFiles.length === 0) {
+    return { ok: false, errors: [`No .md files found in ${subdir}/`], warnings: [] };
+  }
+
+  const tmpDir = path.join(PROMPTGRAPH_DIR, '.validate-tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  for (const file of mdFiles) {
+    try {
+      const content = await httpsGet(file.download_url);
+      const tmpPath = path.join(tmpDir, file.name);
+      fs.writeFileSync(tmpPath, content);
+      const result = validateSkill(tmpPath);
+      if (!result.ok) {
+        errors.push(`${file.name}: ${result.errors.join('; ')}`);
+      }
+      if (result.warnings?.length) {
+        warnings.push(...result.warnings.map(w => `${file.name}: ${w}`));
+      }
+      fs.unlinkSync(tmpPath);
+    } catch (e) {
+      errors.push(`${file.name}: failed to validate — ${e.message}`);
+    }
+  }
+
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 // Ask GitHub API which subdir to use (without cloning anything). Exported for validation.

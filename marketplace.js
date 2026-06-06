@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 import { getDb } from './db.js';
 import { validateSkill, validateBundle } from './validator.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
-import { importFromGitHub } from './github-import.js';
+import { importFromGitHub, validateRepoSkills } from './github-import.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
@@ -314,6 +314,19 @@ export async function publishBundle(bundleDef) {
   const validation = validateBundle(def);
   if (!validation.ok) {
     return { error: 'Bundle validation failed', issues: validation.errors, warnings: validation.warnings };
+  }
+
+  // Validate repo skills content if repo_url is set
+  if (def.repo_url) {
+    const ownerRepo = def.repo_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+    const repoValidation = await validateRepoSkills(ownerRepo);
+    if (!repoValidation.ok) {
+      return {
+        error: 'Repo skills validation failed',
+        issues: repoValidation.errors,
+        warnings: repoValidation.warnings,
+      };
+    }
   }
 
   const bundleJson = JSON.stringify(def, null, 2);
