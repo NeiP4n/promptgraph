@@ -87,7 +87,7 @@ const COMMAND_MAP = {
 
 if (COMMAND_MAP[args[0]]) {
   const mod = await import(COMMAND_MAP[args[0]])
-  await mod.handler(args, bin)
+  await mod.default(args, bin)
   // handler calls process.exit() internally
 }
 

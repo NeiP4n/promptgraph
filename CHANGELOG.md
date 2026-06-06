@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.6.2 (2026-06-07)
+
+### Fixes
+- **`index.js` import fix**: `mod.handler` → `mod.default` — `export default function handler()` does not create a named export `handler` in Node.js ESM. All CLI commands were broken with `TypeError: mod.handler is not a function`.
+
 ## 2.6.1 (2026-06-07)
 
 ### Fixes
