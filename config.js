@@ -56,3 +56,10 @@ export async function promptConfig() {
   console.log(`\nConfig saved to ${CONFIG_PATH}`);
   return config;
 }
+
+export function sanitizePath(inputPath) {
+  if (inputPath.includes('..')) {
+    throw new Error(`Path traversal blocked: "${inputPath}"`);
+  }
+  return path.resolve(inputPath);
+}

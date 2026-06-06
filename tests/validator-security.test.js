@@ -51,8 +51,8 @@ hi`);
     expect(r.errors.some(e => /short/i.test(e))).toBe(true);
   });
 
-  it('rejects too-large file (> 100000 chars)', () => {
-    const body = 'b'.repeat(100001);
+  it('rejects too-large file (> 5242880 chars)', () => {
+    const body = 'b'.repeat(5242881);
     const fp = write('huge.md', `---
 name: huge-skill
 description: this skill is way too large for validation
@@ -60,7 +60,7 @@ description: this skill is way too large for validation
 ${body}`);
     const r = validateSkill(fp);
     expect(r.ok).toBe(false);
-    expect(r.errors.some(e => /large|100000/i.test(e))).toBe(true);
+    expect(r.errors.some(e => /large/i.test(e))).toBe(true);
   });
 
   it('rejects invalid name format', () => {
@@ -250,5 +250,31 @@ cat ~/.ssh/id_rsa`);
     const r = validateSkill(fp);
     expect(r.ok).toBe(false);
     expect(r.errors.some(e => /Security/i.test(e))).toBe(true);
+  });
+
+  it('rejects path traversal in file path', () => {
+    const safeDir = path.join(os.tmpdir(), 'pg-traversal-test');
+    const safeFile = path.join(safeDir, 'test.md');
+    fs.mkdirSync(safeDir, { recursive: true });
+    fs.writeFileSync(safeFile, `---
+name: trav-test
+description: path traversal detection test
+---
+${'x'.repeat(250)}`, 'utf8');
+    const sep = path.sep;
+    const traversalPath = safeDir + sep + '..' + sep + 'pg-traversal-test' + sep + 'test.md';
+    const result = validateSkill(traversalPath);
+    fs.rmSync(safeDir, { recursive: true, force: true });
+    expect(result.ok).toBe(false);
+    expect(result.errors.some(e => e.toLowerCase().includes('path traversal'))).toBe(true);
+  });
+
+  it('accepts max-sized valid file', () => {
+    const tmp = path.join(os.tmpdir(), 'pg-validator-maxsize-test.md');
+    const content = '---\nname: max-size-test\ndescription: ' + 'x'.repeat(50) + '\n---\n' + 'x'.repeat(5000);
+    fs.writeFileSync(tmp, content, 'utf8');
+    const result = validateSkill(tmp);
+    fs.unlinkSync(tmp);
+    expect(result.ok).toBe(true);
   });
 });

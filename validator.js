@@ -15,7 +15,7 @@ const DANGEROUS_PATTERNS = [
 ];
 
 const MIN_CONTENT_LENGTH = 200;       // chars of actual instruction
-const MAX_CONTENT_LENGTH = 100000;    // 100KB cap
+const MAX_CONTENT_LENGTH = 5242880;    // 5MB cap
 const MIN_DESCRIPTION_LENGTH = 15;
 const NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
@@ -80,6 +80,12 @@ export function validateSkill(filePath) {
 
   // junk filename heuristic
   const base = filePath.split(/[\\/]/).pop().toLowerCase();
+
+  // path traversal check (must be an actual path component, not substring match)
+  const pathParts = filePath.split(/[\\/]/);
+  if (pathParts.includes('..')) {
+    errors.push('Path traversal detected: file path contains ".."');
+  }
   if (['readme.md', 'changelog.md', 'license.md', 'contributing.md'].includes(base)) {
     warnings.push('Filename looks like a docs file, not a skill.');
   }

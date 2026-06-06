@@ -154,12 +154,9 @@ Claude uses these automatically when the MCP server is running:
 
 ## Search modes
 
-| Mode | How | Quality |
-|---|---|---|
-| After `pg reindex` | Cosine similarity on 384-dim BGE vectors | Semantic — finds by meaning |
-| After `pg reindex --fast` | SQLite FTS5 BM25 | Keyword — exact word match |
-
-Search falls back to FTS5 automatically if no embeddings exist.
+Search falls back to FTS5 automatically if no embeddings exist. When embeddings are
+available, results are a hybrid of semantic similarity (embedding cosine) and keyword
+relevance (BM25) — giving you the best of both approaches.
 
 ---
 

@@ -42,6 +42,32 @@ const _require = createRequire(import.meta.url);
 const PKG_VERSION = (() => { try { return _require('./package.json').version; } catch { return '1.x'; } })();
 const UA = `promptgraph-mcp/${PKG_VERSION}`;
 
+const REGISTRY_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+function validateRegistryEntry(item) {
+  const errors = [];
+  if (!item.id || typeof item.id !== 'string') errors.push('missing required id');
+  else if (!REGISTRY_ID_RE.test(item.id)) errors.push(`invalid id "${item.id}" (must match /^[a-z0-9][a-z0-9-]{1,63}$/)`);
+  if (!item.name || typeof item.name !== 'string') errors.push('missing required name');
+  else if (item.name.length < 3) errors.push(`name "${item.name}" too short (min 3 chars)`);
+  if (!item.description || typeof item.description !== 'string') errors.push('missing required description');
+  else if (item.description.length < 15) errors.push(`description too short (min 15 chars)`);
+  if (item.version !== undefined && typeof item.version !== 'string') errors.push('version must be a string');
+  if (item.author !== undefined && typeof item.author !== 'string') errors.push('author must be a string');
+  if (item.license !== undefined && typeof item.license !== 'string') errors.push('license must be a string');
+  if (item.updated_at !== undefined) {
+    if (typeof item.updated_at !== 'string') errors.push('updated_at must be a string');
+    else if (isNaN(Date.parse(item.updated_at))) errors.push(`updated_at "${item.updated_at}" is not a valid ISO date`);
+  }
+  if (item.downloads !== undefined && typeof item.downloads !== 'number') errors.push('downloads must be a number');
+  if (item.verified !== undefined && typeof item.verified !== 'boolean') errors.push('verified must be a boolean');
+  if (errors.length > 0) {
+    console.warn(`[PromptGraph] Skipping invalid registry entry "${item.id || item.name || '(unnamed)'}": ${errors.join('; ')}`);
+    return { ok: false };
+  }
+  return { ok: true };
+}
+
 // Deterministic short code from an id. Same id always yields the same code,
 // so codes auto-generate — no need to assign them by hand.
 export function codeFor(id) {
@@ -137,6 +163,8 @@ export async function browseMarketplace(topK = 20) {
     if (!Array.isArray(registry.skills)) return { error: 'Invalid registry format' };
     return registry.skills
       .map(s => ({ ...s, code: s.code || codeFor(s.id) })) // auto-fill code
+      .filter(s => validateRegistryEntry(s).ok)
+      .filter(s => s.raw_url)
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
       .slice(0, topK);
   } catch (e) {
@@ -154,6 +182,10 @@ export async function installSkillFromUrl(url) {
     // derive filename from URL
     const urlName = rawUrl.split('/').pop().replace(/[^a-z0-9-_.]/gi, '-');
     const dest = path.join(SKILLS_DIR, urlName.endsWith('.md') ? urlName : urlName + '.md');
+    const resolvedDest = path.resolve(dest);
+    if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) {
+      return { error: 'Path traversal blocked: destination outside marketplace directory' };
+    }
     const v = writeSkillAtomic(dest, content);
     if (!v.ok) return { error: 'Downloaded skill failed validation', issues: v.errors };
     return { success: true, path: dest, url: rawUrl };
@@ -172,8 +204,9 @@ export async function installSkill(query) {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
     const q = String(query).trim().toLowerCase();
+    const validSkills = (registry.skills || []).filter(s => validateRegistryEntry(s).ok);
     // match by code (stored OR auto-generated), id, or name
-    const skill = registry.skills?.find(s =>
+    const skill = validSkills.find(s =>
       (s.code || codeFor(s.id)).toLowerCase() === q ||
       s.id?.toLowerCase() === q ||
       s.name?.toLowerCase() === q
@@ -191,6 +224,10 @@ export async function installSkill(query) {
     fs.mkdirSync(SKILLS_DIR, { recursive: true });
     ensureMarketplaceSource();
     const dest = path.join(SKILLS_DIR, `${skillId}.md`);
+    const resolvedDest = path.resolve(dest);
+    if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) {
+      return { error: 'Path traversal blocked: destination outside marketplace directory' };
+    }
 
     const content = await fetchText(skill.raw_url);
     const v = writeSkillAtomic(dest, content);
@@ -222,7 +259,7 @@ export async function browseBundles(topK = 20) {
   try {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
-    const bundles = registry.bundles || [];
+    const bundles = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok);
     const cache = readSkillCountCache();
     const now = Date.now();
     let changed = false;
@@ -273,7 +310,8 @@ export async function installBundle(bundleId) {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
     const q = String(bundleId).trim().toLowerCase();
-    const bundle = (registry.bundles || []).find(b =>
+    const validSkills = (registry.skills || []).filter(s => validateRegistryEntry(s).ok);
+    const bundle = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok).find(b =>
       (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
     );
     if (!bundle) return { error: `No bundle matching "${bundleId}"` };
@@ -290,12 +328,16 @@ export async function installBundle(bundleId) {
 
     const delay = (ms) => new Promise(r => setTimeout(r, ms));
     for (const skillId of bundle.skills || []) {
-      const skill = registry.skills?.find(s => s.id === skillId);
+      const skill = validSkills.find(s => s.id === skillId);
       if (!skill?.raw_url) { failed.push(skillId); continue; }
       try {
         if (installed.length > 0) await delay(300); // rate limit: 300ms between requests
         const content = await fetchText(skill.raw_url);
         const dest = path.join(SKILLS_DIR, `${skillId}.md`);
+        const resolvedDest = path.resolve(dest);
+        if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) {
+          failed.push(skillId); continue;
+        }
         const v = writeSkillAtomic(dest, content);
         if (!v.ok) { failed.push(skillId); continue; }
         installed.push(skillId);
@@ -478,7 +520,7 @@ export function pruneInvalidRepos() {
       continue;
     }
 
-    const mdFiles = globSync(`${src.dir}/**/*.md`);
+    const mdFiles = globSync(`${src.dir}/**/*.md`).map(fp => path.resolve(fp));
     if (mdFiles.length === 0) {
       removed.push({ repo: repoName, reason: 'no .md files' });
       config.sources = config.sources.filter(s => s !== src);

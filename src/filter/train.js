@@ -1,10 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import { globSync } from 'glob';
 import { embedBatch } from '../../embedder.js';
 
-const TRAINING_DIR = path.resolve(new URL('../../registry/training', import.meta.url).pathname);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TRAINING_DIR = path.resolve(__dirname, '../../registry/training');
 const MODEL_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'model.json');
 
 function readAllMd(dir) {

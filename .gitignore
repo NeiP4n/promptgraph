@@ -1,4 +1,5 @@
 node_modules/
+coverage/
 *.db
 model-cache/
 local_cache/

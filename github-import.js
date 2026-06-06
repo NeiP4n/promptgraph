@@ -45,6 +45,7 @@ async function validateMdFile(file, tmpDir) {
   try {
     const content = await httpsGet(file.download_url);
     const tmpPath = path.join(tmpDir, file.name);
+    fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
     fs.writeFileSync(tmpPath, content);
     const result = validateSkill(tmpPath);
     if (!result.ok) {
@@ -70,17 +71,28 @@ export async function validateRepoSkills(ownerRepo) {
 
   let mdFiles;
   if (detected) {
-    // Has a skills subdirectory — list contents
+    // Has a skills subdirectory — use git tree API for recursive listing
     const subdir = detected.subdir;
-    let entries;
     try {
-      const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${subdir}`);
-      entries = JSON.parse(json);
+      const treeJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}/git/trees/HEAD?recursive=1`);
+      const tree = JSON.parse(treeJson);
+      const prefix = subdir + '/';
+      const mdTreeEntries = (tree.tree || []).filter(f =>
+        f.type === 'blob' && f.path.startsWith(prefix) && f.path.endsWith('.md')
+      );
+      let branch = 'main';
+      try {
+        const repoJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}`);
+        branch = JSON.parse(repoJson).default_branch || 'main';
+      } catch {}
+      mdFiles = mdTreeEntries.map(f => ({
+        name: f.path.replace(prefix, ''),
+        download_url: `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${f.path}`
+      }));
     } catch (e) {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
       return { ok: false, errors: [`Failed to list ${subdir}/ contents: ${e.message}`], warnings: [] };
     }
-    mdFiles = entries.filter(e => e.type === 'file' && e.name.endsWith('.md'));
   } else {
     // No skills subdir — fall back to root-level .md files
     try {
@@ -131,6 +143,20 @@ async function detectSkillsDirFromAPI(ownerRepo) {
       if (dirMap.has(d)) return { subdir: dirMap.get(d), label: d };
     }
 
+    // 1.5 Nested skills dirs (e.g. .claude/skills, .claude-plugin/commands)
+    for (const prefix of ['.claude', '.claude-plugin']) {
+      if (dirMap.has(prefix)) {
+        for (const d of SKILL_DIRS) {
+          const nested = `${prefix}/${d}`;
+          try {
+            const sub = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${nested}`);
+            const subEntries = JSON.parse(sub);
+            if (subEntries.length > 0) return { subdir: nested, label: nested };
+          } catch {}
+        }
+      }
+    }
+
     // 2. Any subdir with 2+ .md files — pick the one with most .md files
     const subdirCandidates = entries.filter(e => e.type === 'dir' && !SKIP_DIRS_API.has(e.name.toLowerCase()));
     let best = null, bestCount = 0;
@@ -152,6 +178,8 @@ const SKIP_DIRS_API = new Set([
   '.github', 'docs', 'doc', 'documentation', 'examples', 'example',
   'tests', 'test', 'assets', 'images', 'img', 'media', 'static',
   'node_modules', 'vendor', 'dist', 'build', '.git',
+  'references', 'reference', 'refs', 'cheatsheet', 'cheat-sheet',
+  'cheatsheets', 'resources',
 ]);
 
 function git(args, cwd, stdio = 'inherit') {
@@ -177,16 +205,23 @@ function sparseClone(url, dest, subdir) {
   // Try HEAD, then main, then master
   for (const branch of ['HEAD', 'main', 'master']) {
     const r = git(['checkout', branch === 'HEAD' ? 'FETCH_HEAD' : branch], dest, 'pipe');
-    if (r.status === 0) return true;
+    if (r.status === 0) return finalizeCheckout(dest, true);
   }
   return false;
 }
 
+// Shared skip patterns — module scope so both cleanup functions can access them
+const SKIP_RE = /^(readme|changelog|license|contributing|code.of.conduct|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding)/i;
+const SKIP_DIRS_LOCAL = new Set([
+  '.github', 'docs', 'doc', 'assets', 'images', 'img', 'screenshots',
+  'media', 'static', 'scripts', 'ci_scripts', 'node_modules', 'vendor',
+  'dist', 'build', 'tests', 'test',
+  'references', 'reference', 'refs', 'cheatsheet', 'cheat-sheet',
+  'cheatsheets', 'resources',
+]);
+
 // After full-clone root: remove files that are not skills and dirs we don't need
 function cleanupRepoRoot(repoRoot) {
-  const SKIP_RE = /^(readme|changelog|license|contributing|code.of.conduct|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding)/i;
-  const SKIP_DIRS_LOCAL = new Set(['.github', 'docs', 'doc', 'assets', 'images', 'img', 'screenshots', 'media', 'static', 'scripts', 'ci_scripts', 'node_modules', 'vendor', 'dist', 'build', 'tests', 'test']);
-
   let removed = 0;
   const entries = fs.readdirSync(repoRoot, { withFileTypes: true });
   for (const entry of entries) {
@@ -223,9 +258,14 @@ function cleanupRepoDir(dirPath, SKIP_RE) {
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      removed += cleanupRepoDir(fullPath, SKIP_RE);
-      // Remove empty dirs after cleanup
-      try { if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath); } catch {}
+      // Remove entire skip dirs (e.g. references/) nested inside skills dirs
+      if (SKIP_DIRS_LOCAL.has(entry.name.toLowerCase())) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        removed++;
+      } else {
+        removed += cleanupRepoDir(fullPath, SKIP_RE);
+        try { if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath); } catch {}
+      }
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const base = entry.name.replace(/\.md$/i, '').toLowerCase();
       if (SKIP_RE.test(base)) {
@@ -252,19 +292,32 @@ function removeEmptyDirs(dirPath) {
   }
 }
 
-// Update sparse repo — fetch + reset
+// After fetch/checkout: force materialization of all sparse-matched files.
+// partial clone (blob:none) + checkout often skips blob download on Windows.
+function forceMaterialize(dest) {
+  git(['checkout', 'HEAD', '--', '.'], dest, 'pipe');
+}
+
+// Update sparse repo — fetch + checkout
 function sparseUpdate(dest, subdir) {
   const fetch = git(['fetch', '--depth=1', 'origin'], dest);
   if (fetch.status !== 0) return false;
 
-  // Ensure sparse-checkout still set correctly
   git(['sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], dest, 'pipe');
 
-  for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
-    const r = git(['reset', '--hard', ref], dest, 'pipe');
-    if (r.status === 0) return true;
+  for (const ref of ['origin/main', 'origin/master']) {
+    const r = git(['checkout', ref], dest, 'pipe');
+    if (r.status !== 0) continue;
+    forceMaterialize(dest);
+    return true;
   }
   return false;
+}
+
+// After checkout, force materialization of sparse-matched files.
+function finalizeCheckout(dest, success) {
+  if (success) forceMaterialize(dest);
+  return success;
 }
 
 // Fallback: clone root but only checkout .md files
@@ -273,7 +326,8 @@ function fullClone(url, dest) {
     const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
     if (fetch.status !== 0) return false;
     for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
-      if (git(['reset', '--hard', ref], dest, 'pipe').status === 0) return true;
+      const ok = git(['reset', '--hard', ref], dest, 'pipe').status === 0;
+      if (ok) return finalizeCheckout(dest, true);
     }
     return false;
   }
@@ -287,18 +341,29 @@ function fullClone(url, dest) {
   if (fetch.status !== 0) return false;
   for (const branch of ['FETCH_HEAD', 'main', 'master']) {
     const r = git(['checkout', branch], dest, 'pipe');
-    if (r.status === 0) return true;
+    if (r.status === 0) return finalizeCheckout(dest, true);
   }
   return false;
 }
 
-// After clone: detect actual skills dir on disk
+// After clone: detect actual skills dir on disk (flat + nested)
 function detectSkillsDirLocal(repoRoot) {
+  // 1. Flat dirs matching SKILL_DIRS (e.g. skills/, commands/)
   for (const dir of SKILL_DIRS) {
     const candidate = path.join(repoRoot, dir);
     if (fs.existsSync(candidate)) {
       const files = globSync(`${candidate}/**/*.md`);
       if (files.length >= 1) return { dir: candidate, label: dir, sparse: true };
+    }
+  }
+  // 2. Nested dirs: .claude/skills, .claude-plugin/commands, etc.
+  for (const prefix of ['.claude', '.claude-plugin']) {
+    for (const dir of SKILL_DIRS) {
+      const candidate = path.join(repoRoot, prefix, dir);
+      if (fs.existsSync(candidate)) {
+        const files = globSync(`${candidate}/**/*.md`);
+        if (files.length >= 1) return { dir: candidate, label: `${prefix}/${dir}`, sparse: true };
+      }
     }
   }
   return { dir: repoRoot, label: '(root)', sparse: false };
@@ -356,7 +421,17 @@ export async function importFromGitHub(repoUrl) {
     const sparseList = isSparse
       ? spawnSync('git', ['sparse-checkout', 'list'], { cwd: dest, encoding: 'utf8' }).stdout.trim()
       : '';
-    skillsSubdir = sparseList.split('\n').find(l => SKILL_DIRS.includes(l.trim())) || null;
+    skillsSubdir = (() => {
+      const lines = sparseList.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) return null;
+      const exact = lines.find(l => SKILL_DIRS.includes(l));
+      if (exact) return exact;
+      for (const line of lines) {
+        const m = line.match(/^(.+)\/(?:\*\*\/)?\*\.md$/);
+        if (m && !m[1].includes('*')) return m[1];
+      }
+      return null;
+    })();
 
     cloneOk = skillsSubdir
       ? sparseUpdate(dest, skillsSubdir)
@@ -381,7 +456,12 @@ export async function importFromGitHub(repoUrl) {
     removeEmptyDirs(dest);
   }
 
-  const { dir: skillsDir, label } = detectSkillsDirLocal(dest);
+  const { dir: localDir, label: localLabel } = detectSkillsDirLocal(dest);
+  // Prefer the known skillsSubdir (from API detection or sparse patterns) as the
+  // canonical skills directory — it's more accurate than local heuristics for
+  // repos with non-standard dir names (e.g. "specialized", "cli", or nested paths)
+  const skillsDir = skillsSubdir ? path.join(dest, skillsSubdir) : localDir;
+  const label = skillsSubdir || localLabel;
   const mdFiles = globSync(`${skillsDir}/**/*.md`);
 
   if (skillsSubdir) {

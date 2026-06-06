@@ -11,16 +11,29 @@ import { buildAnnIndex } from './ann.js';
 import { progress, progressDone, success, info, spinner } from './cli.js';
 import chalk from 'chalk';
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024;   // 5 MB per file
+const MAX_FILE_COUNT = 100000;            // 100k files per reindex
+
+function sanitizePath(filePath) {
+  return path.resolve(filePath);
+}
+
 async function indexBatch(db, skills, { fast = false } = {}) {
   const upsertSkill = db.prepare(`
-    INSERT INTO skills (id, name, description, path, source, content, hash)
-    VALUES (@id, @name, @description, @path, @source, @content, @hash)
+    INSERT INTO skills (id, name, description, path, source, content, hash, version, author, license, updated_at, downloads, verified)
+    VALUES (@id, @name, @description, @path, @source, @content, @hash, @version, @author, @license, @updated_at, @downloads, @verified)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       description = excluded.description,
       path = excluded.path,
       content = excluded.content,
-      hash = excluded.hash
+      hash = excluded.hash,
+      version = excluded.version,
+      author = excluded.author,
+      license = excluded.license,
+      updated_at = excluded.updated_at,
+      downloads = excluded.downloads,
+      verified = excluded.verified
   `);
   const deleteChunks = db.prepare('DELETE FROM chunks WHERE skill_id = ?');
   const deleteEdges = db.prepare('DELETE FROM edges WHERE from_skill = ?');
@@ -51,7 +64,7 @@ async function indexBatch(db, skills, { fast = false } = {}) {
   db.transaction(() => {
     for (const skill of skills) {
       const id = skillId(skill.source, skill.name);
-      upsertSkill.run({ id, name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content, hash: skill.hash || null });
+      upsertSkill.run({ id, name: skill.name, description: skill.description, path: skill.path, source: skill.source, content: skill.content, hash: skill.hash || null, version: skill.version || null, author: skill.author || null, license: skill.license || null, updated_at: skill.updated_at || null, downloads: skill.downloads ?? 0, verified: skill.verified ? 1 : 0 });
       upsertFts.run(id, skill.name, skill.description || '', skill.content || '');
       if (!fast) {
         deleteChunks.run(id);
@@ -93,19 +106,30 @@ export async function indexAll({ fast = false } = {}) {
     normDir: path.resolve(s.dir),
   })).sort((a, b) => b.normDir.length - a.normDir.length); // longest first
 
+  console.error('DEBUG normalizedSources count:', normalizedSources.length);
+  console.error('DEBUG first dir:', normalizedSources[0]?.dir);
+
   const seenFiles = new Set();
   const allFiles = [];
   for (const { dir, source } of normalizedSources) {
     const files = globSync(`${dir}/**/*.md`);
+    console.error('DEBUG source:', source, 'dir:', dir, 'count:', files.length);
     for (const f of files) {
-      const norm = path.resolve(f);
+      const norm = sanitizePath(f);
       if (!seenFiles.has(norm)) {
         seenFiles.add(norm);
-        allFiles.push({ file: f, source });
+        allFiles.push({ file: norm, source });
+      } else {
+        console.error('DEBUG duplicate:', norm);
       }
+    }
+    if (allFiles.length > MAX_FILE_COUNT) {
+      info(chalk.yellow(`Reached max file count (${MAX_FILE_COUNT}) — truncating`));
+      break;
     }
   }
   const total = allFiles.length;
+  console.error('DEBUG total files found:', total);
   info(`Found ${chalk.white.bold(total)} files`);
 
   // reconcile: remove skills whose files no longer exist OR whose name changed
@@ -150,9 +174,13 @@ export async function indexAll({ fast = false } = {}) {
 
   for (const { file, source } of allFiles) {
     try {
-      // 1. Read file once
+      // 1. Read file once (with size gate)
       let raw;
-      try { raw = fs.readFileSync(file, 'utf8'); } catch { skipped++; count++; continue; }
+      try {
+        const stat = fs.statSync(file);
+        if (stat.size > MAX_FILE_SIZE) { skipped++; count++; continue; }
+        raw = fs.readFileSync(file, 'utf8');
+      } catch { skipped++; count++; continue; }
 
       // 2. Hash first — cheapest check
       const hash = createHash('md5').update(raw).digest('hex');
@@ -222,10 +250,13 @@ export async function indexAll({ fast = false } = {}) {
 }
 
 export async function indexFile(filePath, source) {
+  const safe = sanitizePath(filePath);
+  const stat = fs.statSync(safe);
+  if (stat.size > MAX_FILE_SIZE) throw new Error(`File too large: ${filePath}`);
   const db = getDb();
-  const raw = fs.readFileSync(filePath, 'utf8');
+  const raw = fs.readFileSync(safe, 'utf8');
   const hash = createHash('md5').update(raw).digest('hex');
-  const skill = parseSkillFile(filePath, source, { raw });
+  const skill = parseSkillFile(safe, source, { raw });
   await indexBatch(db, [{ ...skill, hash }]);
 }
 
@@ -256,7 +287,10 @@ export async function indexSource(dir, sourceName) {
 
   for (const file of files) {
     try {
-      const raw = fs.readFileSync(file, 'utf8');
+      const norm = sanitizePath(file);
+      const stat = fs.statSync(norm);
+      if (stat.size > MAX_FILE_SIZE) { skipped++; count++; continue; }
+      const raw = fs.readFileSync(norm, 'utf8');
       const hash = createHash('md5').update(raw).digest('hex');
       const dbRow = dbByPath.get(file);
       if (dbRow?.hash === hash) { skipped++; count++; continue; }

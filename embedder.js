@@ -4,6 +4,11 @@ import os from 'os';
 
 const CACHE_DIR = path.join(os.homedir(), '.claude', '.promptgraph', 'model-cache');
 const BATCH_SIZE = 256;
+const MAX_EMBEDDING_CALLS = 10000;
+let embedCallCount = 0;
+
+export function getEmbedCallCount() { return embedCallCount; }
+export function resetEmbedCallCount() { embedCallCount = 0; }
 
 let model = null;
 
@@ -18,6 +23,7 @@ async function getModel() {
 }
 
 export async function embed(text) {
+  embedCallCount++;
   const m = await getModel();
   const results = [];
   for await (const batch of m.embed([text])) {
@@ -27,6 +33,10 @@ export async function embed(text) {
 }
 
 export async function embedBatch(texts) {
+  if (embedCallCount + texts.length > MAX_EMBEDDING_CALLS) {
+    throw new Error(`Embedding queue limit exceeded (max ${MAX_EMBEDDING_CALLS} chunks per session). Use --fast or reindex incrementally.`);
+  }
+  embedCallCount += texts.length;
   const m = await getModel();
   const all = [];
   for await (const batch of m.embed(texts)) {

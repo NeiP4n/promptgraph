@@ -19,6 +19,8 @@ const SKIP_DIRS = new Set([
   'tests', 'test', '__tests__', 'spec', 'fixtures', 'assets', 'images',
   'img', 'screenshots', 'media', 'static', 'public', 'dist', 'build',
   'node_modules', 'vendor', 'third_party',
+  'references', 'reference', 'refs', 'cheatsheet', 'cheat-sheet',
+  'cheatsheets', 'resources',
 ]);
 
 const BADGE_RE = /!\[.*\]\(https?:\/\/(img\.shields\.io|badge\.fury|travis-ci|github\.com\/[^)]+\/badge)/i;

@@ -63,6 +63,26 @@ export function getDb() {
     db.exec('ALTER TABLE skills ADD COLUMN hash TEXT');
   }
 
+  // migrate: add registry metadata columns
+  if (!cols.includes('version')) {
+    db.exec('ALTER TABLE skills ADD COLUMN version TEXT');
+  }
+  if (!cols.includes('author')) {
+    db.exec('ALTER TABLE skills ADD COLUMN author TEXT');
+  }
+  if (!cols.includes('license')) {
+    db.exec('ALTER TABLE skills ADD COLUMN license TEXT');
+  }
+  if (!cols.includes('updated_at')) {
+    db.exec('ALTER TABLE skills ADD COLUMN updated_at TEXT');
+  }
+  if (!cols.includes('downloads')) {
+    db.exec('ALTER TABLE skills ADD COLUMN downloads INTEGER DEFAULT 0');
+  }
+  if (!cols.includes('verified')) {
+    db.exec('ALTER TABLE skills ADD COLUMN verified INTEGER DEFAULT 0');
+  }
+
   // migrate: convert JSON text embeddings to Float32 BLOB (one-time, ~10x smaller)
   const textEmbeddings = db.prepare("SELECT COUNT(*) as n FROM chunks WHERE typeof(embedding) = 'text'").get();
   if (textEmbeddings?.n > 0) {
