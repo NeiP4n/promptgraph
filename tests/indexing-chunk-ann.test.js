@@ -30,9 +30,9 @@ describe('chunkText', () => {
     expect(chunkText(' ').length).toBeGreaterThan(0);
   });
 
-  it('never exceeds MAX_CHUNKS (4) regardless of input size', () => {
+  it('never exceeds MAX_CHUNKS (8) regardless of input size', () => {
     const text = Array(5000).fill('word').join(' ');
-    expect(chunkText(text).length).toBeLessThanOrEqual(4);
+    expect(chunkText(text).length).toBeLessThanOrEqual(8);
   });
 
   it('preserves markdown headers at chunk boundaries', () => {

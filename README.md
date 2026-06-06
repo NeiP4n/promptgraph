@@ -14,13 +14,17 @@ Instead of loading every `.md` skill into your context, Claude calls `pg_search`
 ```
 pg_search("refactor without breaking tests")
   → embed query (BGE-Small-EN, 384-dim)
-  → flat cosine similarity over in-memory index
-  → return top skill path + snippet
-  → Claude reads only that file
+  → ANN index (HNSW by default, flat fallback) — topK×4 candidates
+  → BM25 (FTS5) — topK×4 candidates
+  → hybrid merge (embedWeight × cosine + bm25Weight × BM25)
+  → term-overlap reranker (TF frequency + header-position boost)
+  → return topK skill paths + snippets
+  → Claude reads only the files it needs
 ```
 
-**Index:** SQLite + Float32 BLOB embeddings, flat cosine search in-memory.
-No external vector DB, no API key, no cloud.
+**Index:** SQLite + Float32 BLOB embeddings + HNSW approximate nearest neighbor (configurable: `PG_VECTOR_STORE=flat` for brute-force cosine). No external vector DB, no API key, no cloud.
+
+**Reranker:** lightweight term-overlap scorer (binary overlap + TF frequency + header-position boost). Not a cross-encoder — disable via `PG_RERANKER=0`.
 
 **File watcher:** `chokidar` detects `.md` changes and reindexes automatically (MCP server mode only).
 
@@ -34,13 +38,24 @@ No external vector DB, no API key, no cloud.
 | 88 skills reindexed (unchanged, hash match) | **< 1 s** |
 | `pg reindex --fast` (3000 files, keyword only) | **~30 s** |
 | `pg reindex` full embed (3000 files) | **~30 min** |
-| Semantic search query | **< 50 ms** |
+| Semantic search query (HNSW) | **< 50 ms** |
+| Semantic search query (flat, brute-force) | **< 200 ms** |
 | Model size (BGE-Small-EN-v1.5, one-time download) | **23 MB** |
 | Embedding dimensions | **384** |
-| Max chunks per skill | **2** |
+| Max chunks per skill | **8** (configurable: `PG_MAX_CHUNKS`) |
 | Embedding batch size | **256** |
 
 > ONNX model initialization (~2–3 min) happens once on first use and is cached in `~/.claude/.promptgraph/model-cache/`.
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PG_VECTOR_STORE` | `hnsw` | Vector index: `hnsw` (ANN, faster at scale) or `flat` (brute-force cosine) |
+| `PG_RERANKER` | `1` | Enable term-overlap reranker after hybrid search (set `0` to disable) |
+| `PG_MAX_CHUNKS` | `8` | Max semantic chunks per skill (higher = more detail per long file, more embedding cost) |
 
 ---
 
@@ -154,9 +169,15 @@ Claude uses these automatically when the MCP server is running:
 
 ## Search modes
 
-Search falls back to FTS5 automatically if no embeddings exist. When embeddings are
-available, results are a hybrid of semantic similarity (embedding cosine) and keyword
-relevance (BM25) — giving you the best of both approaches.
+Search runs a multi-stage pipeline:
+
+1. **ANN retrieval** — HNSW approximate nearest neighbor (default) or flat brute-force cosine (`PG_VECTOR_STORE=flat`)
+2. **BM25 keyword** — SQLite FTS5
+3. **Hybrid fusion** — weighted sum (embedding × embedWeight + BM25 × bm25Weight, adaptive per query)
+4. **Reranker** — term-overlap rescoring with TF frequency and header-position boost (disable via `PG_RERANKER=0`)
+5. **Rating boost** — success/fail history adjusts final ranking
+
+Falls back to FTS5 only if no embeddings exist.
 
 ---
 

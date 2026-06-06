@@ -271,10 +271,10 @@ describe('store/index.js', () => {
     resetStore();
   });
 
-  it('getStore without args returns FlatVectorStore by default', async () => {
+  it('getStore without args returns HNSWVectorStore by default', async () => {
     const storeMod = await import('../src/store/index.js');
-    const FlatVectorStore = (await import('../src/store/flat-store.js')).FlatVectorStore;
-    expect(storeMod.getStore()).toBeInstanceOf(FlatVectorStore);
+    const HNSWVectorStore = (await import('../src/store/hnsw-store.js')).HNSWVectorStore;
+    expect(storeMod.getStore()).toBeInstanceOf(HNSWVectorStore);
   });
 
   it('getStore("hnsw") returns HNSWVectorStore', async () => {

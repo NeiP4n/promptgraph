@@ -7,7 +7,7 @@ export function getStore(type = null) {
   if (_store) return _store;
 
   if (!type) {
-    type = process.env.PG_VECTOR_STORE || 'flat';
+    type = process.env.PG_VECTOR_STORE || 'hnsw';
   }
 
   _store = type === 'hnsw' ? new HNSWVectorStore() : new FlatVectorStore();

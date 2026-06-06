@@ -77,7 +77,7 @@ Adaptive weighting: if query contains uppercase or digits (technical terms), emb
 
 ### 3. Store Layer (`src/store/`)
 Vector index abstraction with two implementations:
-- **FlatVectorStore** (default, env `PG_VECTOR_STORE=flat`) — brute-force cosine in Float32Array. Zero dependencies, always correct.
+- **FlatVectorStore** (opt-out via `PG_VECTOR_STORE=flat`) — brute-force cosine in Float32Array. Zero dependencies, always correct.
 - **HNSWVectorStore** (env `PG_VECTOR_STORE=hnsw`) — approximate nearest neighbor via `hnswlib-node`. Faster at scale, requires native module.
 
 The `VectorStore` base class defines: `add`, `addBatch`, `remove`, `search`, `build`, `clear`, `size`.
@@ -105,7 +105,7 @@ indexAll()
      d. parseSkillFile() — frontmatter + body + skill references
      e. batch → filterWithClassifier() → indexBatch()
   4. indexBatch():
-      a. chunkText() → semantic chunks (max 4 per skill; configurable)
+        a. chunkText() → semantic chunks (max 8 per skill; configurable via PG_MAX_CHUNKS)
      b. embedBatch() → BGE-Small-EN vectors
      c. upsert skills, chunks (BLOB), edges, FTS5
   5. buildAnnIndex() → rebuild vector index
@@ -133,7 +133,7 @@ Lightweight term-overlap reranker applied to the top 20 hybrid results. Computes
 
 ### 10. Utility Layer (`src/utils/`, `cli.js`, `chunker.js`, `config.js`)
 - **RateLimiter** — sliding-window rate limiter for GitHub API calls (30 req/min for API, 60 req/min for downloads)
-- **chunker.js** — splits skill content by markdown headers, then by word count (800 words, 100 overlap, max 4 chunks)
+- **chunker.js** — splits skill content by markdown headers, then by word count (800 words, 100 overlap, max 8 chunks; configurable via PG_MAX_CHUNKS)
 - **config.js** — JSON config management (sources, safety limits)
 - **cli.js** — terminal output (colors, spinners, progress bars)
 - **chunkText** — splits on h1/h2/h3 boundaries
@@ -250,10 +250,10 @@ All limits defined in `config.js`:
 1. **Local-first, zero cloud** — Embedding via local ONNX model, SQLite DB, no API keys.
 2. **Lazy imports** — Heavy modules (fastembed, better-sqlite3, hnswlib-node) are dynamically imported only when needed. CLI help starts instantly.
 3. **Hybrid search** — Embedding cosine + BM25 FTS5 with adaptive weights. Best of semantic and keyword.
-4. **Flat vector store by default** — HNSW is opt-in (`PG_VECTOR_STORE=hnsw`). Flat is simpler, always correct, and fast enough for < 10K vectors.
+4. **HNSW vector store by default** — HNSW is default (`PG_VECTOR_STORE=hnsw`). Flat is opt-out (`PG_VECTOR_STORE=flat`) for brute-force correctness when needed.
 5. **Float32 BLOB storage** — Embeddings stored as raw binary buffers instead of JSON, ~10x smaller.
 6. **Two-stage filtering** — Cheap hard filter (filename/dir/header checks) before expensive classifier (embedding + centroid).
-7. **EOF delimiters removed** — Chunk embedding count limited to 2 per skill to cap inference cost.
+7. **EOF delimiters removed** — Chunk embedding count limited to 8 per skill (configurable via PG_MAX_CHUNKS) to cap inference cost.
 8. **Sparse checkout for repos** — Only the skills subdirectory is cloned, not the entire repo.
 9. **Atomic skill writes** — Validate to temp file, then rename. No partial installs.
 10. **Hash-based incremental indexing** — MD5 hash on content; unchanged files skip parsing + embedding + DB write.

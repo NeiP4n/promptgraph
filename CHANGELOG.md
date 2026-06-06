@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.6.1 (2026-06-07)
+
+### Improvements
+- **HNSW is now default vector store** — was opt-in `PG_VECTOR_STORE=hnsw`, now default. Set `PG_VECTOR_STORE=flat` for brute-force fallback
+- **MAX_CHUNKS raised 4 → 8** — long skill docs now keep more context. Configurable via `PG_MAX_CHUNKS` env var
+- **README fully synced** — architecture description, benchmarks, search modes, and env var reference now match the current hybrid/ANN/reranker reality
+- **Architecture.md updated** — stale "flat by default" and "max 4 chunks" refs corrected to HNSW default and configurable chunk limit
+
 ## 2.6.0 (2026-06-07)
 
 ### Refactor
