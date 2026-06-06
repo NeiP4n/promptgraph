@@ -342,7 +342,7 @@ if (args[0] === 'validate') {
     if (centroids) {
       try {
         const vec = await embed(raw);
-        const decision = classify(vec, centroids);
+        const decision = classify(vec, centroids, raw, file);
         const pct = (decision.score * 100).toFixed(0);
         if (decision.label === 'skill') signals.push(chalk.green(`✓ classifier: skill (${pct}%)`));
         else if (decision.label === 'unsure') signals.push(chalk.yellow(`? classifier: unsure (${pct}%)`));

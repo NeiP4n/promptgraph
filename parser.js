@@ -32,7 +32,7 @@ export async function filterWithClassifier(skills) {
   const embeddings = await embedBatch(texts);
 
   return skills.filter((_, i) => {
-    const decision = classify(embeddings[i], centroids);
+    const decision = classify(embeddings[i], centroids, skills[i].content, skills[i].path);
     return decision.label === 'skill' || decision.label === 'unsure';
   });
 }

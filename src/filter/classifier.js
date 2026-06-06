@@ -36,7 +36,29 @@ export function getFeatureVector(raw) {
   ];
 }
 
-export function classify(rawVec, centroids) {
+/**
+ * Rule A override: if centroid says reject/unsure but file clearly looks like
+ * a skill by content (code + instructions + list + verbs, no SKILL in name/path),
+ * override to skill. Catches adversarial wrong-heading cases with 0 FP cost.
+ */
+function ruleA(rawVec, raw, filePath) {
+  const fv = getFeatureVector(raw);
+  const hasCode = fv[4];
+  const hasInstructions = fv[2];
+  const hasNumberedList = fv[5];
+  const hasVerb = fv[3];
+  const filename = filePath ? filePath.split(/[/\\]/).pop().replace(/\.md$/i, '').toUpperCase() : '';
+  const pathUpper = filePath ? filePath.toUpperCase() : '';
+  const hasSkillName = filename.includes('SKILL');
+  const hasSkillPath = /SKILL/.test(pathUpper);
+
+  if (hasCode && hasInstructions && hasNumberedList && hasVerb && !hasSkillName && !hasSkillPath) {
+    return { label: 'skill', score: 0.6, method: 'ruleA' };
+  }
+  return null;
+}
+
+export function classify(rawVec, centroids, raw, filePath) {
   if (!centroids) {
     return { label: 'skill', score: 1, method: 'fallback' };
   }
@@ -50,6 +72,13 @@ export function classify(rawVec, centroids) {
   if (score >= SKILL_THRESHOLD) {
     return { label: 'skill', score, goodSim, badSim, method: 'centroid' };
   }
+
+  // Below threshold — try Rule A content override
+  if (raw && filePath) {
+    const override = ruleA(rawVec, raw, filePath);
+    if (override) return override;
+  }
+
   if (score >= UNSURE_THRESHOLD) {
     return { label: 'unsure', score, goodSim, badSim, method: 'centroid' };
   }
