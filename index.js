@@ -16,7 +16,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle', 'status']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle', 'status', 'train']);
 
 function showHelp() {
   console.log(
@@ -319,24 +319,41 @@ if (args[0] === 'validate') {
 
   const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
 
-  // Show indexing score breakdown
   if (raw) {
-    const { skillScore: _score } = await import('./parser.js').catch(() => ({}));
-    const willIndex = isSkillFile(file, raw);
+    const { filterWithClassifier, isSkillFile: _isSkill } = await import('./parser.js');
+    const { hardFilter } = await import('./src/filter/hard-filter.js');
+    const { loadModel } = await import('./src/filter/train.js');
+    const { embed } = await import('./embedder.js');
+    const { classify } = await import('./src/filter/classifier.js');
+
+    const hfResult = hardFilter(file, raw);
+    const willIndex = _isSkill(file, raw);
     const scoreLabel = willIndex ? chalk.green('✓ will be indexed') : chalk.red('✗ will be skipped by indexer');
     console.log(chalk.bold('\n  Indexing check: ') + scoreLabel);
 
-    // Show which signals were detected
-    const lines = raw.split('\n').filter(l => l.trim());
     const signals = [];
-    try { const { data } = (await import('gray-matter')).default(raw); if (data.name) signals.push(chalk.green('+4 frontmatter name:')); } catch {}
-    if (/^#{1,3}\s+(steps?|usage|instructions?|how\s+to|when\s+to\s+use|workflow)/im.test(raw)) signals.push(chalk.green('+2 instructional headers (## Steps / ## Usage)'));
-    if (lines.filter(l => /^#{1,3}\s/.test(l)).some(h => /\b(run|use|fix|debug|check|create|deploy|scan|audit)\b/i.test(h))) signals.push(chalk.green('+2 imperative verbs in headers'));
-    if (raw.includes('```')) signals.push(chalk.green('+1 code block'));
-    if (lines.some(l => /^\d+\.\s/.test(l))) signals.push(chalk.green('+1 numbered list'));
-    if (lines.some(l => /^[-*+]\s/.test(l))) signals.push(chalk.green('+1 bullet list'));
-    const firstH = lines.find(l => /^#{1,3}\s/.test(l))?.replace(/^#+\s*/, '') || '';
-    if (/^(overview|introduction|about|background|welcome)/i.test(firstH)) signals.push(chalk.red('-3 first header looks like docs ("' + firstH + '")'));
+    if (!hfResult.pass) {
+      signals.push(chalk.red(`✗ hard filter: ${hfResult.reason}`));
+    } else {
+      signals.push(chalk.green('✓ hard filter passed'));
+    }
+
+    const centroids = loadModel();
+    if (centroids) {
+      try {
+        const vec = await embed(raw);
+        const decision = classify(vec, centroids);
+        const pct = (decision.score * 100).toFixed(0);
+        if (decision.label === 'skill') signals.push(chalk.green(`✓ classifier: skill (${pct}%)`));
+        else if (decision.label === 'unsure') signals.push(chalk.yellow(`? classifier: unsure (${pct}%)`));
+        else signals.push(chalk.red(`✗ classifier: reject (${pct}%)`));
+      } catch {
+        signals.push(chalk.gray('  classifier: embed failed (skip)'));
+      }
+    } else {
+      signals.push(chalk.gray('  classifier: no model (run `pg train`)'));
+    }
+
     if (signals.length) {
       signals.forEach(s => console.log('    ' + s));
     }
@@ -353,6 +370,22 @@ if (args[0] === 'validate') {
     result.errors.forEach(e => console.log('   ' + chalk.red('•') + ' ' + e));
     process.exit(1);
   }
+}
+
+if (args[0] === 'train') {
+  const { train: trainModel } = await import('./src/filter/train.js');
+  const spin = (await import('./cli.js')).spinner('Training classifier...');
+  spin.start();
+  try {
+    const model = await trainModel();
+    spin.stop();
+    success(`Classifier trained (${model.counts.good} good, ${model.counts.bad} bad examples)`);
+  } catch (e) {
+    spin.stop();
+    error(`Training failed: ${e.message}`);
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 if (args[0] === 'search') {

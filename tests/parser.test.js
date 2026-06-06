@@ -49,9 +49,19 @@ describe('isSkillFile', () => {
     expect(isSkillFile('/x/CHANGELOG.md')).toBe(false);
     expect(isSkillFile('/x/LICENSE.md')).toBe(false);
   });
-  it('accepts real skills', () => {
-    // isSkillFile now reads file content — use a real tmp file
+
+  it('accepts files that pass hard filter', () => {
     const fp = write('real-skill.md', '---\nname: real-skill\ndescription: A real skill for testing\n---\n\n# Real Skill\n\nThis is a real skill with instructions.\n\n## How to use\n\n- Step one\n- Step two\n\n```bash\necho hello\n```\n');
     expect(isSkillFile(fp)).toBe(true);
+  });
+
+  it('rejects content starting with "# Readme"', () => {
+    const fp = write('test-file.md', '# Readme for the project\n\n## Test\nContent.\n');
+    expect(isSkillFile(fp)).toBe(false);
+  });
+
+  it('rejects badge-only content', () => {
+    const fp = write('badge-file.md', '[![Build](https://img.shields.io/badge/build-passing-green)]\n\nContent.');
+    expect(isSkillFile(fp)).toBe(false);
   });
 });

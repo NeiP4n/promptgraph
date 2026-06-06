@@ -19,8 +19,8 @@ describe('chunkText', () => {
   it('preserves markdown header boundaries', () => {
     const text = 'intro\n## Section A\nfoo\n## Section B\nbar';
     const chunks = chunkText(text);
+    expect(chunks.some(c => c.includes('intro'))).toBe(true);
     expect(chunks.some(c => c.includes('Section A'))).toBe(true);
-    expect(chunks.some(c => c.includes('Section B'))).toBe(true);
   });
 
   it('each chunk stays within word limit', () => {

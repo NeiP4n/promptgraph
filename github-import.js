@@ -367,8 +367,7 @@ export async function importFromGitHub(repoUrl) {
   // Remove doc files anywhere in the cloned tree
   cleanupRepoRoot(dest);
 
-  // Validate every .md file via parser scoring — delete low-quality files
-  // Uses the same isSkillFile()/skillScore() as the indexer (threshold ≥ 3)
+  // Validate every .md file via isSkillFile — delete low-quality files
   const allMd = globSync(`${dest}/**/*.md`);
   let removedInvalid = 0;
   for (const fp of allMd) {
@@ -377,7 +376,7 @@ export async function importFromGitHub(repoUrl) {
     }
   }
   if (removedInvalid > 0) {
-    console.log(`Removed ${removedInvalid} low-quality .md files (skillScore < 3)`);
+    console.log(`Removed ${removedInvalid} low-quality .md files (isSkillFile)`);
     // Clean up empty dirs left behind
     removeEmptyDirs(dest);
   }

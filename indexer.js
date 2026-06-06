@@ -2,8 +2,8 @@ import { globSync } from 'glob';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { parseSkillFile, isSkillFile } from './parser.js';
-import { embedBatch, BATCH_SIZE } from './embedder.js';
+import { parseSkillFile, isSkillFile, filterWithClassifier } from './parser.js';
+import { embedBatch, cosineSimilarity, BATCH_SIZE } from './embedder.js';
 import { getDb, skillId, vecToBlob } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
@@ -138,6 +138,7 @@ export async function indexAll({ fast = false } = {}) {
   let count = 0;
   let errors = 0;
   let skipped = 0;
+  let classifierRemoved = 0;
   let batch = [];
   const start = Date.now();
 
@@ -174,8 +175,10 @@ export async function indexAll({ fast = false } = {}) {
       batch.push({ ...parsed, hash });
 
       if (batch.length >= BATCH_SIZE) {
-        await indexBatch(db, batch, { fast });
-        count += batch.length;
+        const filtered = await filterWithClassifier(batch);
+        classifierRemoved += batch.length - filtered.length;
+        await indexBatch(db, filtered, { fast });
+        count += filtered.length;
         batch = [];
         const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
         progress(count, total, { skipped, eta, errors });
@@ -196,8 +199,10 @@ export async function indexAll({ fast = false } = {}) {
   }
 
   if (batch.length > 0) {
-    await indexBatch(db, batch, { fast });
-    count += batch.length;
+    const filtered = await filterWithClassifier(batch);
+    classifierRemoved += batch.length - filtered.length;
+    await indexBatch(db, filtered, { fast });
+    count += filtered.length;
   }
 
   progress(total, total, { skipped, errors });
@@ -208,7 +213,9 @@ export async function indexAll({ fast = false } = {}) {
     await buildAnnIndex();
     spin.stop();
   }
-  success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${errors} errors, ${skipped} skipped, ${removed} removed)`)}`);
+  const stats = [`${errors} errors`, `${skipped} skipped`, `${removed} removed`];
+  if (classifierRemoved > 0) stats.push(`${classifierRemoved} filtered`);
+  success(`Indexed ${chalk.white.bold(count)} skills  ${chalk.gray(`(${stats.join(', ')})`)}`);
   if (fast) info(chalk.yellow('Fast mode: keyword search only. Run `pg reindex` for semantic search.'));
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   info(chalk.gray(`Time: ${elapsed}s`));
