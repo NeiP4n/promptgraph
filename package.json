@@ -3,7 +3,8 @@
   "version": "2.6.0",
   "files": [
     "*.js",
-    "src/**/*.js",
+    "commands/",
+    "src/",
     "README.md"
   ],
   "main": "index.js",
