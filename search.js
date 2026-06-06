@@ -129,7 +129,7 @@ export async function search(query, topK = 5) {
   if (rerankerEnabled) {
     const { Reranker } = await import('./src/reranker/reranker.js')
     const reranker = new Reranker()
-    const topN = ordered.slice(0, 20)
+    const topN = ordered.slice(0, Math.max(50, topK * 6))
       .map(({ id, score }) => {
         const s = skillWithSnippet(db, id, score)
         return s ? { id, text: s.snippet, score } : null

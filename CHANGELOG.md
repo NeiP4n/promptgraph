@@ -11,7 +11,9 @@
 
 ### Improvements
 - **HNSW is now default vector store** — was opt-in `PG_VECTOR_STORE=hnsw`, now default. Set `PG_VECTOR_STORE=flat` for brute-force fallback
-- **MAX_CHUNKS raised 4 → 8** — long skill docs now keep more context. Configurable via `PG_MAX_CHUNKS` env var
+- **MAX_CHUNKS raised 4 → 32** — long skill docs now keep much more context. Configurable via `PG_MAX_CHUNKS` env var
+- **Reranker substantially improved**: bigram/trigram overlap, IDF-weighted TF scoring, exact phrase proximity boost, header position boost. Still heuristic (not a cross-encoder), but significantly smarter
+- **Reranker candidate pool scaled**: `Math.max(50, topK × 6)` instead of hardcoded 20 — large `topK` queries no longer lose candidates
 - **README fully synced** — architecture description, benchmarks, search modes, and env var reference now match the current hybrid/ANN/reranker reality
 - **Architecture.md updated** — stale "flat by default" and "max 4 chunks" refs corrected to HNSW default and configurable chunk limit
 

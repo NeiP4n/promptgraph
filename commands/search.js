@@ -1,6 +1,6 @@
 import { colors, banner, success, error, info, section, table } from '../cli.js';
 import chalk from 'chalk';
-import { VALID_TRUST_LEVELS } from '../marketplace.js';
+import { VALID_TRUST_LEVELS, TRUST_LEVEL_BOOST } from '../marketplace.js';
 
 export default async function handler(args, bin) {
   const trustFilter = args.find(a => a.startsWith('--trust='));
@@ -17,6 +17,7 @@ export default async function handler(args, bin) {
   }
 
   const { search: searchSkills } = await import('../search.js');
+  const { getDb } = await import('../db.js');
   const { getByTrustLevel } = await import('../marketplace.js');
   const spin = (await import('../cli.js')).spinner('Searching...');
   spin.start();
@@ -31,12 +32,21 @@ export default async function handler(args, bin) {
     results = results.filter(r => allowed.has(r.id));
   }
 
-  if (!results.length) { info('No results for: ' + query); process.exit(0); }
+  // Enrich results with trust level
+  const db = getDb();
+  const enriched = results.map(s => {
+    const re = db.prepare('SELECT trust_level FROM registry_entries WHERE id = ?').get(s.id);
+    return { ...s, trustLevel: re ? re.trust_level : 'unknown' };
+  });
+
+  if (!enriched.length) { info('No results for: ' + query); process.exit(0); }
   const purple = chalk.hex('#7C3AED');
   console.log();
-  results.forEach((s, i) => {
+  enriched.forEach((s, i) => {
     const score = chalk.dim((s.score * 100).toFixed(0) + '%');
-    console.log('  ' + chalk.dim(String(i + 1) + '.') + ' ' + chalk.bold.white(s.name) + '  ' + score);
+    const trustBadge = s.trustLevel !== 'unknown' && s.trustLevel !== 'community'
+      ? ' ' + purple(s.trustLevel) : '';
+    console.log('  ' + chalk.dim(String(i + 1) + '.') + ' ' + chalk.bold.white(s.name) + trustBadge + '  ' + score);
     console.log('     ' + chalk.dim(s.description || ''));
     console.log('     ' + purple(s.source) + '  ' + chalk.dim(s.path));
     console.log();
