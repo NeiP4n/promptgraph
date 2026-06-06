@@ -16,8 +16,11 @@ const SKIP_ROOT_DIRS = new Set(['.github', 'docs', 'doc', 'assets', 'images', 'i
 const SKIP_NAMES = /^(readme|changelog|license|contributing|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding)/i;
 
 function httpsGet(url) {
+  const token = process.env.GITHUB_TOKEN;
+  const headers = { 'User-Agent': 'promptgraph-mcp' };
+  if (token && url.startsWith('https://api.github.com/')) headers['Authorization'] = `Bearer ${token}`;
   return new Promise((res, rej) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'promptgraph-mcp' } }, r => {
+    const req = https.get(url, { headers }, r => {
       if (r.statusCode === 403 || r.statusCode === 429) return rej(new Error(`Rate limited`));
       if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
       let d = ''; r.setEncoding('utf8'); r.on('data', c => d += c); r.on('end', () => res(d));

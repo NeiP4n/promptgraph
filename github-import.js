@@ -12,8 +12,11 @@ const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', '
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function httpsGet(url) {
+  const token = process.env.GITHUB_TOKEN;
+  const headers = { 'User-Agent': 'promptgraph-mcp' };
+  if (token && url.startsWith('https://api.github.com/')) headers['Authorization'] = `Bearer ${token}`;
   return new Promise((res, rej) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'promptgraph-mcp' } }, r => {
+    const req = https.get(url, { headers }, r => {
       if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location)
         return httpsGet(r.headers.location).then(res, rej);
       if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
@@ -192,6 +195,9 @@ function cleanupRepoRoot(repoRoot) {
       if (SKIP_DIRS_LOCAL.has(entry.name.toLowerCase())) {
         fs.rmSync(fullPath, { recursive: true, force: true });
         removed++;
+      } else {
+        // Recurse into subdirectory to remove doc files
+        removed += cleanupRepoDir(fullPath, SKIP_RE);
       }
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const base = entry.name.replace(/\.md$/i, '').toLowerCase();
@@ -200,13 +206,36 @@ function cleanupRepoRoot(repoRoot) {
         removed++;
       }
     } else if (entry.isFile() && !entry.name.endsWith('.md')) {
-      // Remove non-md files (gitignore, LICENSE, Makefile, etc.) — keep only .md
       if (entry.name !== '.gitignore') {
         try { fs.unlinkSync(fullPath); removed++; } catch {}
       }
     }
   }
-  if (removed > 0) console.log(`Cleaned up ${removed} non-skill files/dirs from root`);
+  if (removed > 0) console.log(`Cleaned up ${removed} non-skill files/dirs`);
+}
+
+// Recursively remove doc .md files from subdirectories
+function cleanupRepoDir(dirPath, SKIP_RE) {
+  let removed = 0;
+  let entries;
+  try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); } catch { return 0; }
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      removed += cleanupRepoDir(fullPath, SKIP_RE);
+      // Remove empty dirs after cleanup
+      try { if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath); } catch {}
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      const base = entry.name.replace(/\.md$/i, '').toLowerCase();
+      if (SKIP_RE.test(base)) {
+        fs.unlinkSync(fullPath);
+        removed++;
+      }
+    } else if (entry.isFile() && !entry.name.endsWith('.md')) {
+      try { fs.unlinkSync(fullPath); removed++; } catch {}
+    }
+  }
+  return removed;
 }
 
 // Update sparse repo — fetch + reset
@@ -320,6 +349,9 @@ export async function importFromGitHub(repoUrl) {
       : fullClone(url, dest);
     if (!cloneOk) throw new Error(`Update failed for ${repoName}`);
   }
+
+  // Remove doc files anywhere in the cloned tree
+  cleanupRepoRoot(dest);
 
   const { dir: skillsDir, label } = detectSkillsDirLocal(dest);
   const mdFiles = globSync(`${skillsDir}/**/*.md`);

@@ -11,6 +11,7 @@ import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './con
 import { importFromGitHub, validateRepoSkills } from './github-import.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
+const SKILL_COUNT_CACHE = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
 const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
 
 // Atomically write content to dest via tmp — cleans up on failure
@@ -81,6 +82,29 @@ async function rawFetch(url) {
 
 // Disk cache for the registry (network to GitHub raw can be slow on some networks).
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const SKILL_COUNT_TTL = 24 * 60 * 60 * 1000; // 24 hours for skill counts
+
+// Return GitHub API auth headers if GITHUB_TOKEN is set
+function githubAuthHeaders() {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) return { 'User-Agent': 'promptgraph-mcp' };
+  return { 'User-Agent': 'promptgraph-mcp', 'Authorization': `Bearer ${token}` };
+}
+
+// Read skill count cache, returns {} on miss
+function readSkillCountCache() {
+  try {
+    if (fs.existsSync(SKILL_COUNT_CACHE)) return JSON.parse(fs.readFileSync(SKILL_COUNT_CACHE, 'utf8'));
+  } catch {}
+  return {};
+}
+
+function writeSkillCountCache(data) {
+  try {
+    fs.mkdirSync(path.dirname(SKILL_COUNT_CACHE), { recursive: true });
+    fs.writeFileSync(SKILL_COUNT_CACHE, JSON.stringify(data));
+  } catch {}
+}
 
 async function fetchText(url) {
   const cacheFile = path.join(PROMPTGRAPH_DIR, 'registry-cache.json');
@@ -187,7 +211,7 @@ function isSkillFile(path) {
 async function countRepoSkills(repoUrl) {
   try {
     const apiUrl = `https://api.github.com/repos/${repoUrl}/git/trees/HEAD?recursive=1`;
-    const res = await fetch(apiUrl, { headers: { 'User-Agent': 'promptgraph-mcp' } });
+    const res = await fetch(apiUrl, { headers: githubAuthHeaders() });
     if (!res.ok) return null;
     const data = await res.json();
     return (data.tree || []).filter(f => f.type === 'blob' && isSkillFile(f.path)).length;
@@ -199,12 +223,33 @@ export async function browseBundles(topK = 20) {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
     const bundles = registry.bundles || [];
+    const cache = readSkillCountCache();
+    const now = Date.now();
+    let changed = false;
+
     await Promise.all(bundles.map(async b => {
-      // Re-count all repo bundles with the new .md-only filter
-      if (b.repo_url) b.skillCount = await countRepoSkills(b.repo_url) ?? 0;
+      if (!b.repo_url) return;
+      const cached = cache[b.repo_url];
+      // Use cached count if fresh, else fetch from API
+      if (cached && (now - cached.ts) < SKILL_COUNT_TTL) {
+        b.skillCount = cached.count;
+      } else {
+        const count = await countRepoSkills(b.repo_url);
+        if (count !== null) {
+          b.skillCount = count;
+          cache[b.repo_url] = { count, ts: now };
+          changed = true;
+        } else {
+          // API failed — use stale cache if exists, else keep registry value as fallback
+          b.skillCount = cached?.count ?? b.skillCount ?? 0;
+        }
+      }
     }));
+
+    if (changed) writeSkillCountCache(cache);
+
     return bundles
-      .filter(b => !b.repo_url || b.skillCount > 0) // hide bundles with 0 .md files
+      .filter(b => !b.repo_url || b.skillCount > 0)
       .map(b => ({ ...b, code: b.code || codeFor(b.id) }))
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
       .slice(0, topK);
@@ -322,16 +367,17 @@ export async function publishBundle(bundleDef) {
     return { error: 'Bundle validation failed', issues: validation.errors, warnings: validation.warnings };
   }
 
-  // Validate repo skills content if repo_url is set
+  // Best-effort repo validation (client-side). GitHub Actions is the source of truth.
+  let repoWarnings = [];
   if (def.repo_url) {
-    const ownerRepo = def.repo_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
-    const repoValidation = await validateRepoSkills(ownerRepo);
-    if (!repoValidation.ok) {
-      return {
-        error: 'Repo skills validation failed',
-        issues: repoValidation.errors,
-        warnings: repoValidation.warnings,
-      };
+    try {
+      const ownerRepo = def.repo_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+      const repoValidation = await validateRepoSkills(ownerRepo);
+      if (!repoValidation.ok) {
+        repoWarnings = repoValidation.errors;
+      }
+    } catch (e) {
+      repoWarnings = [`Repo validation warning: ${e.message} (will be checked by CI)`];
     }
   }
 
@@ -345,6 +391,7 @@ export async function publishBundle(bundleDef) {
 
   if (gh.no_gh) {
     const issueUrl = `${REGISTRY_ISSUES}?title=Bundle%3A+${encodeURIComponent(def.name)}&body=${encodeURIComponent('Bundle definition:\n\n```json\n' + bundleJson + '\n```')}`;
+    const actionNote = def.repo_url ? `\n\nNote: Your repo will be validated by CI (GitHub Actions) after submission.\nRun locally: node validate-repo-action.js ${def.repo_url}` : '';
     return {
       success: true,
       gh_not_installed: true,
@@ -352,6 +399,8 @@ export async function publishBundle(bundleDef) {
         '1. Install gh CLI: https://cli.github.com',
         `   OR open this pre-filled issue directly: ${issueUrl}`,
         '2. Paste the bundle JSON shown below into the issue body',
+        ...(repoWarnings.length ? ['', '⚠ Repo warnings (CI will re-check):', ...repoWarnings.map(w => '   - ' + w)] : []),
+        ...(def.repo_url ? ['', 'Your repo will be validated by CI when submitted.'] : []),
       ].join('\n'),
       bundle_json: bundleJson,
       submit_url: issueUrl,
@@ -359,7 +408,10 @@ export async function publishBundle(bundleDef) {
   }
   if (!gh.ok) return { error: gh.error };
   const issueUrl = `${REGISTRY_ISSUES}?title=Bundle%3A+${encodeURIComponent(def.name)}&body=Gist%3A+${encodeURIComponent(gh.url)}`;
-  return { success: true, gist_url: gh.url, submit_url: issueUrl, message: `Bundle published! Submit: ${issueUrl}` };
+  const msg = def.repo_url
+    ? `Bundle published! Submit: ${issueUrl}\n\nRepo will be validated by CI. Run: node validate-repo-action.js ${def.repo_url}`
+    : `Bundle published! Submit: ${issueUrl}`;
+  return { success: true, gist_url: gh.url, submit_url: issueUrl, message: msg };
 }
 
 export function getTopRated(topK = 10) {
