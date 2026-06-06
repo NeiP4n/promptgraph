@@ -20,12 +20,13 @@ function httpsGet(url) {
   const headers = { 'User-Agent': 'promptgraph-mcp' };
   if (token && url.startsWith('https://api.github.com/')) headers['Authorization'] = `Bearer ${token}`;
   return new Promise((res, rej) => {
-    const req = https.get(url, { headers }, r => {
+    const req = https.get(url, { headers, timeout: 15000 }, r => {
       if (r.statusCode === 403 || r.statusCode === 429) return rej(new Error(`Rate limited`));
       if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
-      let d = ''; r.setEncoding('utf8'); r.on('data', c => d += c); r.on('end', () => res(d));
+      const chunks = []; r.setEncoding('utf8'); r.on('data', c => chunks.push(c)); r.on('end', () => res(chunks.join('')));
     });
     req.on('error', rej);
+    req.on('timeout', () => { req.destroy(new Error('timeout')); });
   });
 }
 

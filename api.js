@@ -39,7 +39,8 @@ export async function index(sourceDir, sourceName) {
     const path = await import('path');
     const { createHash } = await import('crypto');
     const { parseSkillFile, isSkillFile } = await import('./parser.js');
-    const { embedBatch, BATCH_SIZE } = await import('./embedder.js');
+    const { embedBatch } = await import('./embedder.js');
+    const { BATCH_SIZE } = await import('./config.js');
     const { skillId, vecToBlob } = await import('./db.js');
     const { chunkText } = await import('./chunker.js');
 
@@ -105,7 +106,8 @@ export async function update() {
     const path = await import('path');
     const { createHash } = await import('crypto');
     const { parseSkillFile, isSkillFile } = await import('./parser.js');
-    const { embedBatch, BATCH_SIZE } = await import('./embedder.js');
+    const { embedBatch } = await import('./embedder.js');
+    const { BATCH_SIZE } = await import('./config.js');
     const { skillId, vecToBlob } = await import('./db.js');
     const { chunkText } = await import('./chunker.js');
     const { indexBatch } = await import('./indexer.js');

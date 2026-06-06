@@ -19,7 +19,7 @@ function sanitizePath(filePath) {
   return path.resolve(filePath);
 }
 
-async function indexBatch(db, skills, { fast = false } = {}) {
+export async function indexBatch(db, skills, { fast = false } = {}) {
   const upsertSkill = db.prepare(`
     INSERT INTO skills (id, name, description, path, source, content, hash, version, author, license, updated_at, downloads, verified)
     VALUES (@id, @name, @description, @path, @source, @content, @hash, @version, @author, @license, @updated_at, @downloads, @verified)
@@ -107,21 +107,15 @@ export async function indexAll({ fast = false } = {}) {
     normDir: path.resolve(s.dir),
   })).sort((a, b) => b.normDir.length - a.normDir.length); // longest first
 
-  console.error('DEBUG normalizedSources count:', normalizedSources.length);
-  console.error('DEBUG first dir:', normalizedSources[0]?.dir);
-
   const seenFiles = new Set();
   const allFiles = [];
   for (const { dir, source } of normalizedSources) {
     const files = globSync(`${dir}/**/*.md`);
-    console.error('DEBUG source:', source, 'dir:', dir, 'count:', files.length);
     for (const f of files) {
       const norm = sanitizePath(f);
       if (!seenFiles.has(norm)) {
         seenFiles.add(norm);
         allFiles.push({ file: norm, source });
-      } else {
-        console.error('DEBUG duplicate:', norm);
       }
     }
     if (allFiles.length > MAX_FILE_COUNT) {
@@ -130,7 +124,6 @@ export async function indexAll({ fast = false } = {}) {
     }
   }
   const total = allFiles.length;
-  console.error('DEBUG total files found:', total);
   info(`Found ${chalk.white.bold(total)} files`);
 
   // reconcile: remove skills whose files no longer exist OR whose name changed

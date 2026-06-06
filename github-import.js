@@ -25,21 +25,22 @@ function getRepoStats(ownerRepo) {
   return repoStats.get(ownerRepo)
 }
 
-function streamDownload(url, maxSize = MAX_DOWNLOAD_SIZE) {
+function streamDownload(url, maxSize = MAX_DOWNLOAD_SIZE, redirects = 0) {
+  if (redirects > 5) return Promise.reject(new Error('Too many redirects'))
   return new Promise((res, rej) => {
     const token = process.env.GITHUB_TOKEN;
     const headers = { 'User-Agent': 'promptgraph-mcp' };
     if (token && url.startsWith('https://raw.')) headers['Authorization'] = `Bearer ${token}`;
     const req = https.get(url, { headers }, r => {
       if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location)
-        return streamDownload(r.headers.location, maxSize).then(res, rej);
+        return streamDownload(r.headers.location, maxSize, redirects + 1).then(res, rej);
       if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
       const cl = parseInt(r.headers['content-length'], 10);
       if (!isNaN(cl) && cl > maxSize) {
         r.resume();
         return rej(new Error(`Content-Length ${cl} exceeds max ${maxSize}`));
       }
-      let d = ''
+      const chunks = []
       let total = 0
       r.setEncoding('utf8')
       r.on('data', c => {
@@ -48,15 +49,16 @@ function streamDownload(url, maxSize = MAX_DOWNLOAD_SIZE) {
           r.destroy()
           return rej(new Error(`Download exceeded ${maxSize} bytes`))
         }
-        d += c
+        chunks.push(c)
       })
-      r.on('end', () => res(d))
+      r.on('end', () => res(chunks.join('')))
     })
     req.on('error', rej)
   })
 }
 
-async function httpsGet(url) {
+async function httpsGet(url, redirects = 0) {
+  if (redirects > 5) return Promise.reject(new Error('Too many redirects'))
   await githubRateLimiter.acquire()
   const token = process.env.GITHUB_TOKEN;
   const headers = { 'User-Agent': 'promptgraph-mcp' };
@@ -64,9 +66,9 @@ async function httpsGet(url) {
   return new Promise((res, rej) => {
     const req = https.get(url, { headers }, r => {
       if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location)
-        return httpsGet(r.headers.location).then(res, rej);
+        return httpsGet(r.headers.location, redirects + 1).then(res, rej);
       if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
-      let d = ''; r.setEncoding('utf8'); r.on('data', c => d += c); r.on('end', () => res(d));
+      const chunks = []; r.setEncoding('utf8'); r.on('data', c => chunks.push(c)); r.on('end', () => res(chunks.join('')));
     });
     req.on('error', rej);
   });

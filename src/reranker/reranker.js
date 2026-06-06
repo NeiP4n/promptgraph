@@ -4,12 +4,13 @@ export class Reranker {
     this.device = device
   }
 
-  // Cross-encoder style reranker
-  // Plug-in point for BGE Reranker / MiniLM Reranker via ONNX
+  // Term-overlap boost on top of hybrid search scores
+  // This is a lightweight reranker that ranks by term overlap ratio.
+  // Replace with BGE Reranker / MiniLM cross-encoder via ONNX for deeper semantic reranking.
   async rerank(query, results) {
     if (!results || results.length === 0) return []
 
-    const queryTerms = (query.toLowerCase().match(/\w+/g) || [])
+    const queryTerms = (query.toLowerCase().match(/\w+/g) || []).slice(0, 50)
     const queryTermCount = queryTerms.length || 1
 
     const scored = results.map(r => {

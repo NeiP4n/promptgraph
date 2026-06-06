@@ -126,9 +126,14 @@ When importing from GitHub:
 
 ## Reporting Vulnerabilities
 
-Report security issues by opening an issue on the [GitHub repository](https://github.com/NeiP4n/promptgraph/issues).
+For **public issues** (non-exploitable bugs, questions): open an issue on the [GitHub repository](https://github.com/NeiP4n/promptgraph/issues).
 
-Do not open public issues for actively exploitable vulnerabilities. Contact the maintainer directly via GitHub.
+For **security vulnerabilities** (CVE-class, actively exploitable): **do NOT open a public issue**. Send details to the maintainer:
+
+- **Email**: `neipan@security.email` (PGP key available on request)
+- **GitHub Security Advisories**: https://github.com/NeiP4n/promptgraph/security/advisories/new
+
+We aim to acknowledge receipt within 24 hours and provide a fix timeline within 72 hours.
 
 ## Disclaimer
 

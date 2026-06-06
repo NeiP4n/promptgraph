@@ -42,7 +42,7 @@ PromptGraph is a **semantic skill router** for MCP-compatible AI clients (Claude
      │
      ▼
    ┌──────────────────────────────────────────────────────────┐
-   │       src/reranker/reranker.js (Cross-Encoder Reranker)   │
+    │       src/reranker/reranker.js (Term-Overlap Reranker)   │
    └──────────────────────────────────────────────────────────┘
      │
      ▼
@@ -121,9 +121,9 @@ SQLite via `better-sqlite3`, WAL journal mode. Tables:
 - **registry_entries** — id, trust_level, downloads, rating, popularity
 
 Embeddings stored as raw Float32Array BLOBs (~1.5 KB per 384-dim vector), not JSON.
-
 ### 8. Reranker Layer (`src/reranker/reranker.js`)
-Lightweight cross-encoder reranker applied to the top 20 hybrid results. Computes term overlap ratio and blends with original score (`0.8 * originalScore + 0.2 * termOverlap`). Disabled via `PG_RERANKER=0`.
+
+Lightweight term-overlap reranker applied to the top 20 hybrid results. Computes term overlap ratio (query terms found in each result) and blends with original score (`0.8 * originalScore + 0.2 * termOverlap`). Disabled via `PG_RERANKER=0`. The class is a plug-in point: replace the `rerank()` method with a BGE Reranker / MiniLM cross-encoder via ONNX for deeper semantic reranking.
 
 ### 9. Parser Layer (`parser.js`)
 - Reads frontmatter (YAML via `gray-matter`)
