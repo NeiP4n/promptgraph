@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import { getDb } from './db.js';
+import { globSync } from 'glob';
 import { validateSkill, validateBundle } from './validator.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
 import { importFromGitHub, validateRepoSkills } from './github-import.js';
@@ -397,4 +398,54 @@ export function recordFail(skillId) {
     VALUES (?, 0, 0, 1)
     ON CONFLICT(skill_id) DO UPDATE SET fail = fail + 1
   `).run(skillId);
+}
+
+// Scan all imported repos, validate their .md files, and remove repos that fail.
+// Returns { removed: string[], kept: string[], errors: string[] }.
+export function pruneInvalidRepos() {
+  const config = loadConfig();
+  const removed = [];
+  const kept = [];
+  const errors = [];
+
+  const repoSources = config.sources.filter(s => s.source?.startsWith('github:'));
+  if (repoSources.length === 0) {
+    return { removed, kept, errors: [], message: 'No imported repos found.' };
+  }
+
+  for (const src of repoSources) {
+    const repoName = src.source.replace('github:', '');
+    if (!fs.existsSync(src.dir)) {
+      removed.push({ repo: repoName, reason: 'directory not found' });
+      config.sources = config.sources.filter(s => s !== src);
+      continue;
+    }
+
+    const mdFiles = globSync(`${src.dir}/**/*.md`);
+    if (mdFiles.length === 0) {
+      removed.push({ repo: repoName, reason: 'no .md files' });
+      config.sources = config.sources.filter(s => s !== src);
+      try { fs.rmSync(src.dir, { recursive: true, force: true }); } catch {}
+      continue;
+    }
+
+    const invalid = [];
+    for (const fp of mdFiles) {
+      const v = validateSkill(fp);
+      if (!v.ok) {
+        invalid.push({ file: path.relative(src.dir, fp), errors: v.errors });
+      }
+    }
+
+    if (invalid.length > 0) {
+      removed.push({ repo: repoName, reason: `${invalid.length}/${mdFiles.length} .md files failed validation`, invalid });
+      config.sources = config.sources.filter(s => s !== src);
+      try { fs.rmSync(src.dir, { recursive: true, force: true }); } catch (e) { errors.push(`Failed to remove ${src.dir}: ${e.message}`); }
+    } else {
+      kept.push(repoName);
+    }
+  }
+
+  saveConfig(config);
+  return { removed, kept, errors };
 }
