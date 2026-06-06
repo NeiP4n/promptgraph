@@ -177,14 +177,20 @@ export async function installSkill(query) {
   }
 }
 
+// ── filter skill files (exclude docs) ─────────────────────────────────────────
+const SKIP_DOCS = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap)/i;
+function isSkillFile(path) {
+  const name = path.split('/').pop().toLowerCase();
+  return name.endsWith('.md') && !SKIP_DOCS.test(name.replace(/\.md$/i, ''));
+}
+
 async function countRepoSkills(repoUrl) {
   try {
     const apiUrl = `https://api.github.com/repos/${repoUrl}/git/trees/HEAD?recursive=1`;
     const res = await fetch(apiUrl, { headers: { 'User-Agent': 'promptgraph-mcp' } });
     if (!res.ok) return null;
     const data = await res.json();
-    const exts = ['.md', '.txt', '.yaml', '.yml', '.json'];
-    return (data.tree || []).filter(f => f.type === 'blob' && exts.some(e => f.path.toLowerCase().endsWith(e))).length;
+    return (data.tree || []).filter(f => f.type === 'blob' && isSkillFile(f.path)).length;
   } catch { return null; }
 }
 
@@ -194,12 +200,11 @@ export async function browseBundles(topK = 20) {
     const registry = JSON.parse(text);
     const bundles = registry.bundles || [];
     await Promise.all(bundles.map(async b => {
-      if (b.repo_url && b.skillCount === undefined) {
-        const count = await countRepoSkills(b.repo_url);
-        if (count !== null) b.skillCount = count;
-      }
+      // Re-count all repo bundles with the new .md-only filter
+      if (b.repo_url) b.skillCount = await countRepoSkills(b.repo_url) ?? 0;
     }));
     return bundles
+      .filter(b => !b.repo_url || b.skillCount > 0) // hide bundles with 0 .md files
       .map(b => ({ ...b, code: b.code || codeFor(b.id) }))
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
       .slice(0, topK);
