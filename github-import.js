@@ -34,51 +34,78 @@ function repoExists(ownerRepo) {
   });
 }
 
-// Validate all .md files in a repo's skills subdir against validateSkill().
-// Returns { ok, errors[], warnings[] }.
-export async function validateRepoSkills(ownerRepo) {
+// Download one .md file, run validateSkill on it, return errors/warnings.
+async function validateMdFile(file, tmpDir) {
   const errors = [];
   const warnings = [];
-
-  const detected = await detectSkillsDirFromAPI(ownerRepo);
-  if (!detected) {
-    return { ok: false, errors: [`No skills directory found in ${ownerRepo}`], warnings: [] };
-  }
-
-  const subdir = detected.subdir;
-  const listUrl = `https://api.github.com/repos/${ownerRepo}/contents/${subdir}`;
-  let entries;
   try {
-    const json = await httpsGet(listUrl);
-    entries = JSON.parse(json);
+    const content = await httpsGet(file.download_url);
+    const tmpPath = path.join(tmpDir, file.name);
+    fs.writeFileSync(tmpPath, content);
+    const result = validateSkill(tmpPath);
+    if (!result.ok) {
+      errors.push(`${file.name}: ${result.errors.join('; ')}`);
+    }
+    if (result.warnings?.length) {
+      warnings.push(...result.warnings.map(w => `${file.name}: ${w}`));
+    }
+    fs.unlinkSync(tmpPath);
   } catch (e) {
-    return { ok: false, errors: [`Failed to list ${subdir}/ contents: ${e.message}`], warnings: [] };
+    errors.push(`${file.name}: failed to validate — ${e.message}`);
   }
+  return { errors, warnings };
+}
 
-  const mdFiles = entries.filter(e => e.type === 'file' && e.name.endsWith('.md'));
-  if (mdFiles.length === 0) {
-    return { ok: false, errors: [`No .md files found in ${subdir}/`], warnings: [] };
-  }
-
+// Validate all .md files in a repo's skills subdir against validateSkill().
+// Falls back to root-level .md files if no skills subdirectory is found.
+// Returns { ok, errors[], warnings[] }.
+export async function validateRepoSkills(ownerRepo) {
+  const detected = await detectSkillsDirFromAPI(ownerRepo);
   const tmpDir = path.join(PROMPTGRAPH_DIR, '.validate-tmp');
   fs.mkdirSync(tmpDir, { recursive: true });
 
-  for (const file of mdFiles) {
+  let mdFiles;
+  if (detected) {
+    // Has a skills subdirectory — list contents
+    const subdir = detected.subdir;
+    let entries;
     try {
-      const content = await httpsGet(file.download_url);
-      const tmpPath = path.join(tmpDir, file.name);
-      fs.writeFileSync(tmpPath, content);
-      const result = validateSkill(tmpPath);
-      if (!result.ok) {
-        errors.push(`${file.name}: ${result.errors.join('; ')}`);
-      }
-      if (result.warnings?.length) {
-        warnings.push(...result.warnings.map(w => `${file.name}: ${w}`));
-      }
-      fs.unlinkSync(tmpPath);
+      const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${subdir}`);
+      entries = JSON.parse(json);
     } catch (e) {
-      errors.push(`${file.name}: failed to validate — ${e.message}`);
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      return { ok: false, errors: [`Failed to list ${subdir}/ contents: ${e.message}`], warnings: [] };
     }
+    mdFiles = entries.filter(e => e.type === 'file' && e.name.endsWith('.md'));
+  } else {
+    // No skills subdir — fall back to root-level .md files
+    try {
+      const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents`);
+      const entries = JSON.parse(json);
+      mdFiles = entries.filter(e => e.type === 'file' && e.name.endsWith('.md'));
+    } catch (e) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      return { ok: false, errors: [`Failed to list repo root: ${e.message}`], warnings: [] };
+    }
+  }
+
+  if (!mdFiles || mdFiles.length === 0) {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    return { ok: false, errors: [`No .md files found in ${ownerRepo}`], warnings: [] };
+  }
+
+  // Filter out docs-like filenames (README, LICENSE, CHANGELOG, etc.)
+  const SKIP_DOCS = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap)/i;
+  const mdTrimmed = mdFiles.filter(f => !SKIP_DOCS.test(f.name.replace(/\.md$/i, '')));
+  const mdToValidate = mdTrimmed.length > 0 ? mdTrimmed : mdFiles;
+
+  let errors = [];
+  let warnings = [];
+
+  for (const file of mdToValidate) {
+    const r = await validateMdFile(file, tmpDir);
+    errors.push(...r.errors);
+    warnings.push(...r.warnings);
   }
 
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -266,17 +293,13 @@ export async function importFromGitHub(repoUrl) {
     skillsSubdir = detected?.subdir || null;
 
     if (!skillsSubdir) {
-      throw new Error(
-        `No skill subdirectory found in ${ownerRepo}.\n` +
-        `Expected one of: ${SKILL_DIRS.join(', ')}\n` +
-        `Or any subfolder with .md files.\n` +
-        `Visit https://github.com/${ownerRepo} to check the repo structure.`
-      );
+      console.log(`found: (root) — no skills subdirectory, using full clone`);
+      cloneOk = fullClone(url, dest);
+    } else {
+      console.log(`found: ${detected.label}/`);
+      console.log(`Sparse-cloning ${url} (${skillsSubdir}/ only)...`);
+      cloneOk = sparseClone(url, dest, skillsSubdir);
     }
-
-    console.log(`found: ${detected.label}/`);
-    console.log(`Sparse-cloning ${url} (${skillsSubdir}/ only)...`);
-    cloneOk = sparseClone(url, dest, skillsSubdir);
     if (!cloneOk) {
       fs.rmSync(dest, { recursive: true, force: true });
       throw new Error(`Sparse-checkout failed for ${url}`);
