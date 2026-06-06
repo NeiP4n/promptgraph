@@ -120,7 +120,7 @@ export async function search(query, topK = 5) {
         return s ? { id, text: s.snippet, score } : null
       })
       .filter(Boolean)
-    const reranked = await reranker.rerank(query, topN)
+    const reranked = await reranker.rerank(query, topN, topK)
     return reranked.map(r => skillWithSnippet(db, r.id, applyRatingBoost(db, r.id, r.score))).filter(Boolean)
   }
 

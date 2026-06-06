@@ -1,6 +1,6 @@
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 100;
-const MAX_CHUNKS = 2;
+const MAX_CHUNKS = 4;
 
 export function chunkText(text) {
   // Split on markdown h1/h2/h3 headers to preserve semantic boundaries

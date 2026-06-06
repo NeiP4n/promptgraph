@@ -169,7 +169,7 @@ platform.js        — MCP platform auto-detection + config
 src/
   store/           — Vector index (Flat / HNSW)
   filter/          — Content quality classifier
-  reranker/        — Term-overlap reranker (replace with BGE cross-encoder)
+  reranker/        — Term-overlap reranker (heuristic; future: BGE cross-encoder)
   utils/           — Rate limiter
 tests/             — Vitest test suite
 ```

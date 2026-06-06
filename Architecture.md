@@ -85,11 +85,11 @@ The `VectorStore` base class defines: `add`, `addBatch`, `remove`, `search`, `bu
 ### 4. Classifier Layer (`src/filter/`)
 Two-stage content quality filter:
 - **Hard Filter** (`hard-filter.js`) — reject by filename (README, LICENSE, CHANGELOG, etc.), directory (docs/, tests/, node_modules/), and header patterns (`# Readme`, badges).
-- **Soft Classifier** (`classifier.js`) — feature-vector scoring (headers, code blocks, lists, verb count) + centroid similarity (cosine distance to good/bad centroids). Rule A override catches adversarial false negatives.
+- **Soft Classifier** (`classifier.js`) — feature-vector scoring (headers, code blocks, lists, verb count) + centroid similarity (cosine distance to good/bad centroids). Rule A heuristic attempts to recover false negatives with strong content signals.
 
 ### 5. Filter Layer (`src/filter/` continued)
 - **train.js** — computes centroid model from training data in `registry/training/`. Called via `pg train`.
-- **classifier.js** — 14-dim feature vector + centroid cosine similarity. Thresholds: `>= 0.35` skill, `>= 0.15` unsure, below rejects.
+- **classifier.js** — 14-dim feature vector + centroid cosine similarity. Current thresholds (heuristic, not yet optimized): `>= 0.35` skill, `>= 0.15` unsure, below rejects.
 
 ### 6. Indexer Layer (`indexer.js`)
 Full indexing pipeline:
@@ -105,7 +105,7 @@ indexAll()
      d. parseSkillFile() — frontmatter + body + skill references
      e. batch → filterWithClassifier() → indexBatch()
   4. indexBatch():
-     a. chunkText() → semantic chunks (max 2 per skill)
+      a. chunkText() → semantic chunks (max 4 per skill; configurable)
      b. embedBatch() → BGE-Small-EN vectors
      c. upsert skills, chunks (BLOB), edges, FTS5
   5. buildAnnIndex() → rebuild vector index
@@ -123,7 +123,7 @@ SQLite via `better-sqlite3`, WAL journal mode. Tables:
 Embeddings stored as raw Float32Array BLOBs (~1.5 KB per 384-dim vector), not JSON.
 ### 8. Reranker Layer (`src/reranker/reranker.js`)
 
-Lightweight term-overlap reranker applied to the top 20 hybrid results. Computes term overlap ratio (query terms found in each result) and blends with original score (`0.8 * originalScore + 0.2 * termOverlap`). Disabled via `PG_RERANKER=0`. The class is a plug-in point: replace the `rerank()` method with a BGE Reranker / MiniLM cross-encoder via ONNX for deeper semantic reranking.
+Lightweight term-overlap reranker applied to the top 20 hybrid results. Computes a combined score from binary term overlap, TF frequency, and header-position boost, blended with the original hybrid score. Respects the requested `topK` count. Disabled via `PG_RERANKER=0`. Note: this is NOT a cross-encoder — it's a heuristic scorer. The class is a plug-in point: replace the `rerank()` method with a BGE Reranker / MiniLM cross-encoder via ONNX for deeper semantic reranking.
 
 ### 9. Parser Layer (`parser.js`)
 - Reads frontmatter (YAML via `gray-matter`)
@@ -133,7 +133,7 @@ Lightweight term-overlap reranker applied to the top 20 hybrid results. Computes
 
 ### 10. Utility Layer (`src/utils/`, `cli.js`, `chunker.js`, `config.js`)
 - **RateLimiter** — sliding-window rate limiter for GitHub API calls (30 req/min for API, 60 req/min for downloads)
-- **chunker.js** — splits skill content by markdown headers, then by word count (800 words, 100 overlap, max 2 chunks)
+- **chunker.js** — splits skill content by markdown headers, then by word count (800 words, 100 overlap, max 4 chunks)
 - **config.js** — JSON config management (sources, safety limits)
 - **cli.js** — terminal output (colors, spinners, progress bars)
 - **chunkText** — splits on h1/h2/h3 boundaries
