@@ -2,6 +2,9 @@
 
 ## 2.6.1 (2026-06-07)
 
+### Fixes
+- **`package.json` `files` field fixed**: added `commands/` and `src/` (was `"*.js"` which only matches root-level .js files, causing `ERR_MODULE_NOT_FOUND` for `pg marketplace` and other command imports)
+
 ### Reputation & Trust
 - **calcPopularity rewritten**: `downloads * (rating+1)` → `log10(downloads+1) × normalized_rating × 100` with 180-day half-life time decay. Downloads no longer dominate quality.
 - **Trust level now boosts search ranking**: `verified ×1.15`, `official ×1.10`, `trusted ×1.05`, `community ×1.0`, `unknown ×0.95` — applied in `applyRatingBoost()`
