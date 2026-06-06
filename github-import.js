@@ -4,15 +4,60 @@ import fs from 'fs';
 import https from 'https';
 import { globSync } from 'glob';
 import { indexAll, indexSource } from './indexer.js';
-import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
+import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR, MAX_DOWNLOAD_SIZE, MAX_FILE_COUNT, MAX_REPO_SIZE, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config.js';
 import { validateSkill } from './validator.js';
 import { isSkillFile } from './parser.js';
+import { RateLimiter } from './src/utils/rate-limiter.js';
+
+const githubRateLimiter = new RateLimiter({ maxRequests: RATE_LIMIT_REQUESTS, windowMs: RATE_LIMIT_WINDOW_MS })
+const downloadRateLimiter = new RateLimiter({ maxRequests: RATE_LIMIT_REQUESTS * 2, windowMs: RATE_LIMIT_WINDOW_MS })
 
 const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', 'slash-commands', 'custom-commands', 'templates'];
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function httpsGet(url) {
+const repoStats = new Map()
+
+function getRepoStats(ownerRepo) {
+  if (!repoStats.has(ownerRepo)) {
+    repoStats.set(ownerRepo, { totalBytes: 0, fileCount: 0 })
+  }
+  return repoStats.get(ownerRepo)
+}
+
+function streamDownload(url, maxSize = MAX_DOWNLOAD_SIZE) {
+  return new Promise((res, rej) => {
+    const token = process.env.GITHUB_TOKEN;
+    const headers = { 'User-Agent': 'promptgraph-mcp' };
+    if (token && url.startsWith('https://raw.')) headers['Authorization'] = `Bearer ${token}`;
+    const req = https.get(url, { headers }, r => {
+      if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location)
+        return streamDownload(r.headers.location, maxSize).then(res, rej);
+      if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
+      const cl = parseInt(r.headers['content-length'], 10);
+      if (!isNaN(cl) && cl > maxSize) {
+        r.resume();
+        return rej(new Error(`Content-Length ${cl} exceeds max ${maxSize}`));
+      }
+      let d = ''
+      let total = 0
+      r.setEncoding('utf8')
+      r.on('data', c => {
+        total += Buffer.byteLength(c, 'utf8')
+        if (total > maxSize) {
+          r.destroy()
+          return rej(new Error(`Download exceeded ${maxSize} bytes`))
+        }
+        d += c
+      })
+      r.on('end', () => res(d))
+    })
+    req.on('error', rej)
+  })
+}
+
+async function httpsGet(url) {
+  await githubRateLimiter.acquire()
   const token = process.env.GITHUB_TOKEN;
   const headers = { 'User-Agent': 'promptgraph-mcp' };
   if (token && url.startsWith('https://api.github.com/')) headers['Authorization'] = `Bearer ${token}`;
@@ -39,11 +84,22 @@ function repoExists(ownerRepo) {
 }
 
 // Download one .md file, run validateSkill on it, return errors/warnings.
-async function validateMdFile(file, tmpDir) {
+async function validateMdFile(file, tmpDir, ownerRepo) {
   const errors = [];
   const warnings = [];
+  const stats = getRepoStats(ownerRepo);
   try {
-    const content = await httpsGet(file.download_url);
+    if (stats.fileCount >= MAX_FILE_COUNT) {
+      errors.push(`${file.name}: skipped — repo file count limit (${MAX_FILE_COUNT}) reached`);
+      return { errors, warnings };
+    }
+    await downloadRateLimiter.acquire()
+    const content = await streamDownload(file.download_url);
+    stats.totalBytes += Buffer.byteLength(content, 'utf8');
+    stats.fileCount++;
+    if (stats.totalBytes > MAX_REPO_SIZE) {
+      return { errors: [...errors, `${file.name}: repo size limit (${MAX_REPO_SIZE}) exceeded`], warnings };
+    }
     const tmpPath = path.join(tmpDir, file.name);
     fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
     fs.writeFileSync(tmpPath, content);
@@ -119,7 +175,7 @@ export async function validateRepoSkills(ownerRepo) {
   let warnings = [];
 
   for (const file of mdToValidate) {
-    const r = await validateMdFile(file, tmpDir);
+    const r = await validateMdFile(file, tmpDir, ownerRepo);
     errors.push(...r.errors);
     warnings.push(...r.warnings);
   }
@@ -463,6 +519,10 @@ export async function importFromGitHub(repoUrl) {
   const skillsDir = skillsSubdir ? path.join(dest, skillsSubdir) : localDir;
   const label = skillsSubdir || localLabel;
   const mdFiles = globSync(`${skillsDir}/**/*.md`);
+
+  if (mdFiles.length > MAX_FILE_COUNT) {
+    console.warn(`Warning: ${mdFiles.length} .md files exceeds limit of ${MAX_FILE_COUNT} — truncating`);
+  }
 
   if (skillsSubdir) {
     console.log(`Sparse-checkout: ${label}/ only (${mdFiles.length} .md files, no other repo files)`);

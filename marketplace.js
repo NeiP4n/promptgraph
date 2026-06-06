@@ -61,6 +61,16 @@ function validateRegistryEntry(item) {
   }
   if (item.downloads !== undefined && typeof item.downloads !== 'number') errors.push('downloads must be a number');
   if (item.verified !== undefined && typeof item.verified !== 'boolean') errors.push('verified must be a boolean');
+  if (item.trustLevel !== undefined && typeof item.trustLevel !== 'string') errors.push('trustLevel must be a string');
+  if (item.rating !== undefined) {
+    if (typeof item.rating !== 'number') errors.push('rating must be a number');
+    else if (item.rating < 0 || item.rating > 5) errors.push('rating must be between 0 and 5');
+  }
+  if (item.popularity !== undefined && typeof item.popularity !== 'number') errors.push('popularity must be a number');
+  if (item.lastUpdate !== undefined) {
+    if (typeof item.lastUpdate !== 'string') errors.push('lastUpdate must be a string');
+    else if (isNaN(Date.parse(item.lastUpdate))) errors.push(`lastUpdate "${item.lastUpdate}" is not a valid ISO date`);
+  }
   if (errors.length > 0) {
     console.warn(`[PromptGraph] Skipping invalid registry entry "${item.id || item.name || '(unnamed)'}": ${errors.join('; ')}`);
     return { ok: false };
@@ -162,7 +172,7 @@ export async function browseMarketplace(topK = 20) {
     const registry = JSON.parse(text);
     if (!Array.isArray(registry.skills)) return { error: 'Invalid registry format' };
     return registry.skills
-      .map(s => ({ ...s, code: s.code || codeFor(s.id) })) // auto-fill code
+      .map(s => Object.assign(Object.create(null), s, { code: s.code || codeFor(s.id) }))
       .filter(s => validateRegistryEntry(s).ok)
       .filter(s => s.raw_url)
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
@@ -287,7 +297,7 @@ export async function browseBundles(topK = 20) {
 
     return bundles
       .filter(b => !b.repo_url || b.skillCount > 0)
-      .map(b => ({ ...b, code: b.code || codeFor(b.id) }))
+      .map(b => Object.assign(Object.create(null), b, { code: b.code || codeFor(b.id) }))
       .sort((a, b) => (b.stars || 0) - (a.stars || 0))
       .slice(0, topK);
   } catch (e) {
@@ -547,4 +557,75 @@ export function pruneInvalidRepos() {
 
   saveConfig(config);
   return { removed, kept, errors };
+}
+
+// ── Trust level system ─────────────────────────────────────────────────────────
+const VALID_TRUST_LEVELS = ['verified', 'official', 'community', 'trusted', 'unknown']
+
+function calcPopularity(downloads = 0, rating = 0) {
+  return Math.round((downloads || 0) * ((rating || 0) + 1) * 100) / 100
+}
+
+export async function setTrustLevel(name, level) {
+  const db = getDb()
+  if (!VALID_TRUST_LEVELS.includes(level)) {
+    return { ok: false, error: `Invalid trust level "${level}". Must be one of: ${VALID_TRUST_LEVELS.join(', ')}` }
+  }
+  const id = String(name)
+  db.prepare(`
+    INSERT INTO registry_entries (id, trust_level, last_update)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET trust_level = excluded.trust_level, last_update = excluded.last_update
+  `).run(id, level)
+  return { ok: true }
+}
+
+export async function getByTrustLevel(level) {
+  const db = getDb()
+  if (level && !VALID_TRUST_LEVELS.includes(level)) {
+    return { error: `Invalid trust level "${level}". Must be one of: ${VALID_TRUST_LEVELS.join(', ')}` }
+  }
+  if (level) {
+    return db.prepare('SELECT * FROM registry_entries WHERE trust_level = ? ORDER BY id').all(level)
+  }
+  return db.prepare('SELECT * FROM registry_entries ORDER BY id').all()
+}
+
+export async function incrementDownloads(name) {
+  const db = getDb()
+  const id = String(name)
+  const existing = db.prepare('SELECT downloads, rating FROM registry_entries WHERE id = ?').get(id)
+  if (existing) {
+    const newDownloads = (existing.downloads || 0) + 1
+    const pop = calcPopularity(newDownloads, existing.rating || 0)
+    db.prepare('UPDATE registry_entries SET downloads = ?, popularity = ?, last_update = datetime(\'now\') WHERE id = ?')
+      .run(newDownloads, pop, id)
+  } else {
+    const pop = calcPopularity(1, 0)
+    db.prepare('INSERT INTO registry_entries (id, downloads, popularity, last_update) VALUES (?, 1, ?, datetime(\'now\'))')
+      .run(id, pop)
+  }
+  return { ok: true }
+}
+
+export async function rateSkill(name, rating) {
+  const db = getDb()
+  if (typeof rating !== 'number' || rating < 0 || rating > 5) {
+    return { ok: false, error: 'Rating must be a number between 0 and 5' }
+  }
+  const id = String(name)
+  const existing = db.prepare('SELECT rating, rating_count, downloads FROM registry_entries WHERE id = ?').get(id)
+  if (existing) {
+    const count = existing.rating_count || 0
+    const newRating = Math.round(((existing.rating || 0) * count + rating) / (count + 1) * 100) / 100
+    const newCount = count + 1
+    const pop = calcPopularity(existing.downloads || 0, newRating)
+    db.prepare('UPDATE registry_entries SET rating = ?, rating_count = ?, popularity = ?, last_update = datetime(\'now\') WHERE id = ?')
+      .run(newRating, newCount, pop, id)
+  } else {
+    const pop = calcPopularity(0, rating)
+    db.prepare('INSERT INTO registry_entries (id, rating, rating_count, popularity, last_update) VALUES (?, ?, 1, ?, datetime(\'now\'))')
+      .run(id, rating, pop)
+  }
+  return { ok: true }
 }

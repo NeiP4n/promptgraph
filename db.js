@@ -82,6 +82,34 @@ export function getDb() {
   if (!cols.includes('verified')) {
     db.exec('ALTER TABLE skills ADD COLUMN verified INTEGER DEFAULT 0');
   }
+  if (!cols.includes('trust_level')) {
+    db.exec('ALTER TABLE skills ADD COLUMN trust_level TEXT DEFAULT \'unknown\'');
+  }
+  if (!cols.includes('rating')) {
+    db.exec('ALTER TABLE skills ADD COLUMN rating REAL DEFAULT 0');
+  }
+  if (!cols.includes('rating_count')) {
+    db.exec('ALTER TABLE skills ADD COLUMN rating_count INTEGER DEFAULT 0');
+  }
+  if (!cols.includes('popularity')) {
+    db.exec('ALTER TABLE skills ADD COLUMN popularity REAL DEFAULT 0');
+  }
+  if (!cols.includes('last_update')) {
+    db.exec('ALTER TABLE skills ADD COLUMN last_update TEXT');
+  }
+
+  // migrate: registry entries metadata table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS registry_entries (
+      id TEXT PRIMARY KEY,
+      trust_level TEXT DEFAULT 'unknown',
+      downloads INTEGER DEFAULT 0,
+      rating REAL DEFAULT 0,
+      rating_count INTEGER DEFAULT 0,
+      popularity REAL DEFAULT 0,
+      last_update TEXT
+    );
+  `);
 
   // migrate: convert JSON text embeddings to Float32 BLOB (one-time, ~10x smaller)
   const textEmbeddings = db.prepare("SELECT COUNT(*) as n FROM chunks WHERE typeof(embedding) = 'text'").get();

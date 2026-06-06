@@ -3,7 +3,8 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { parseSkillFile, isSkillFile, filterWithClassifier } from './parser.js';
-import { embedBatch, cosineSimilarity, BATCH_SIZE } from './embedder.js';
+import { embedBatch, cosineSimilarity } from './embedder.js';
+import { BATCH_SIZE } from './config.js';
 import { getDb, skillId, vecToBlob } from './db.js';
 import { loadConfig } from './config.js';
 import { chunkText } from './chunker.js';
@@ -210,6 +211,7 @@ export async function indexAll({ fast = false } = {}) {
         batch = [];
         const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
         progress(count, total, { skipped, eta, errors });
+        await new Promise(r => setImmediate ? setImmediate(r) : setTimeout(r, 0));
       }
     } catch (e) {
       errors++;
@@ -301,6 +303,7 @@ export async function indexSource(dir, sourceName) {
         await indexBatch(db, batch);
         count += batch.length; batch = [];
         progress(count, total, { skipped, errors });
+        await new Promise(r => setImmediate ? setImmediate(r) : setTimeout(r, 0));
       }
     } catch (e) { errors++; count++; }
   }

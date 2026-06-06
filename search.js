@@ -2,24 +2,10 @@ import { embed, cosineSimilarity } from './embedder.js';
 import { getDb, blobToVec } from './db.js';
 import { annSearch } from './ann.js';
 
-let embedWeight = 0.7;
-let bm25Weight = 0.3;
-
-export function setHybridWeights(ew, bw) {
-  embedWeight = ew;
-  bm25Weight = bw;
-}
-
-function adaptWeights(query) {
-  // Technical terms (caps, digits) → BM25 matters more
+function getHybridWeights(query) {
   const hasTechTerms = /[A-Z]|\d/.test(query);
-  if (hasTechTerms) {
-    embedWeight = 0.5;
-    bm25Weight = 0.5;
-  } else {
-    embedWeight = 0.7;
-    bm25Weight = 0.3;
-  }
+  if (hasTechTerms) return { embedWeight: 0.5, bm25Weight: 0.5 }
+  return { embedWeight: 0.7, bm25Weight: 0.3 }
 }
 
 function applyRatingBoost(db, id, score) {
@@ -82,7 +68,7 @@ function runBM25Search(db, query, topK) {
 
 export async function search(query, topK = 5) {
   const db = getDb();
-  adaptWeights(query);
+  const { embedWeight, bm25Weight } = getHybridWeights(query);
   const queryVec = await embed(query);
 
   const embedResults = await runEmbeddingSearch(db, queryVec, topK * 4);
@@ -116,13 +102,29 @@ export async function search(query, topK = 5) {
     }
   }
 
-  return [...combined.entries()]
+  const ordered = [...combined.entries()]
     .map(([id, s]) => ({
       id,
       score: embedWeight * s.embedScore + bm25Weight * s.bm25Score,
     }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
+
+  const rerankerEnabled = process.env.PG_RERANKER !== '0'
+
+  if (rerankerEnabled) {
+    const { Reranker } = await import('./src/reranker/reranker.js')
+    const reranker = new Reranker()
+    const topN = ordered.slice(0, 20)
+      .map(({ id, score }) => {
+        const s = skillWithSnippet(db, id, score)
+        return s ? { id, text: s.snippet, score } : null
+      })
+      .filter(Boolean)
+    const reranked = await reranker.rerank(query, topN)
+    return reranked.map(r => skillWithSnippet(db, r.id, applyRatingBoost(db, r.id, r.score))).filter(Boolean)
+  }
+
+  return ordered.slice(0, topK)
     .map(({ id, score }) => skillWithSnippet(db, id, applyRatingBoost(db, id, score)))
     .filter(Boolean);
 }

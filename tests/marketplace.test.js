@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import Database from 'better-sqlite3';
 
 const tmp = path.join(os.tmpdir(), 'pg-marketplace-test');
 
@@ -35,9 +36,10 @@ vi.mock('../db.js', () => ({
 }));
 
 // Must import AFTER mocks
-const { pruneInvalidRepos } = await import('../marketplace.js');
+const { pruneInvalidRepos, setTrustLevel, getByTrustLevel, incrementDownloads, rateSkill } = await import('../marketplace.js');
 const { loadConfig, saveConfig } = await import('../config.js');
 const { validateSkill } = await import('../validator.js');
+const { getDb } = await import('../db.js');
 
 beforeEach(() => {
   fs.mkdirSync(tmp, { recursive: true });
@@ -169,5 +171,232 @@ describe('isSkillFile (countRepoSkills filter)', () => {
     ];
     const count = tree.filter(f => f.type === 'blob' && isSkillFile(f.path)).length;
     expect(count).toBe(1);
+  });
+});
+
+// ── Trust levels ───────────────────────────────────────────────────────────────
+
+function createRegistryDb() {
+  const db = new Database(':memory:');
+  db.exec(`CREATE TABLE IF NOT EXISTS registry_entries (
+    id TEXT PRIMARY KEY,
+    trust_level TEXT DEFAULT 'unknown',
+    downloads INTEGER DEFAULT 0,
+    rating REAL DEFAULT 0,
+    rating_count INTEGER DEFAULT 0,
+    popularity REAL DEFAULT 0,
+    last_update TEXT
+  )`);
+  return db;
+}
+
+describe('setTrustLevel / getByTrustLevel', () => {
+  let realDb;
+
+  beforeEach(() => {
+    realDb = createRegistryDb();
+    vi.mocked(getDb).mockReturnValue(realDb);
+  });
+
+  afterEach(() => {
+    realDb.close();
+  });
+
+  it('sets trust level for a skill', async () => {
+    const r = await setTrustLevel('react-skill', 'verified');
+    expect(r).toEqual({ ok: true });
+
+    const entries = await getByTrustLevel('verified');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('react-skill');
+    expect(entries[0].trust_level).toBe('verified');
+  });
+
+  it('rejects invalid trust level', async () => {
+    const r = await setTrustLevel('react-skill', 'super-verified');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/Invalid trust level/);
+  });
+
+  it('default trust level is unknown', async () => {
+    // incrementDownloads creates an entry with defaults
+    await incrementDownloads('unknown-skill');
+    const entries = await getByTrustLevel('unknown');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('unknown-skill');
+    expect(entries[0].trust_level).toBe('unknown');
+  });
+
+  it('returns all entries when no level filter', async () => {
+    await setTrustLevel('skill-a', 'verified');
+    await setTrustLevel('skill-b', 'community');
+    await setTrustLevel('skill-c', 'verified');
+
+    const all = await getByTrustLevel();
+    expect(all).toHaveLength(3);
+  });
+
+  it('updates existing trust level', async () => {
+    await setTrustLevel('skill-x', 'community');
+    await setTrustLevel('skill-x', 'official');
+
+    const entries = await getByTrustLevel('official');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('skill-x');
+
+    const communityEntries = await getByTrustLevel('community');
+    expect(communityEntries).toHaveLength(0);
+  });
+
+  it('filters correctly by trust level', async () => {
+    await setTrustLevel('skill-a', 'verified');
+    await setTrustLevel('skill-b', 'official');
+    await setTrustLevel('skill-c', 'community');
+    await setTrustLevel('skill-d', 'trusted');
+
+    const verified = await getByTrustLevel('verified');
+    expect(verified).toHaveLength(1);
+    expect(verified[0].id).toBe('skill-a');
+
+    const official = await getByTrustLevel('official');
+    expect(official).toHaveLength(1);
+    expect(official[0].id).toBe('skill-b');
+
+    const community = await getByTrustLevel('community');
+    expect(community).toHaveLength(1);
+    expect(community[0].id).toBe('skill-c');
+
+    const trusted = await getByTrustLevel('trusted');
+    expect(trusted).toHaveLength(1);
+    expect(trusted[0].id).toBe('skill-d');
+  });
+
+  it('fetches all available trust levels', async () => {
+    await setTrustLevel('skill-a', 'verified');
+    await setTrustLevel('skill-b', 'official');
+
+    const all = await getByTrustLevel();
+    expect(all).toHaveLength(2);
+    expect(all.map(e => e.id)).toContain('skill-a');
+    expect(all.map(e => e.id)).toContain('skill-b');
+  });
+});
+
+// ── Downloads ──────────────────────────────────────────────────────────────────
+
+describe('incrementDownloads', () => {
+  let realDb;
+
+  beforeEach(() => {
+    realDb = createRegistryDb();
+    vi.mocked(getDb).mockReturnValue(realDb);
+  });
+
+  afterEach(() => {
+    realDb.close();
+  });
+
+  it('starts downloads at 1 for new skill', async () => {
+    await incrementDownloads('skill-one');
+    const entry = realDb.prepare('SELECT * FROM registry_entries WHERE id = ?').get('skill-one');
+    expect(entry.downloads).toBe(1);
+  });
+
+  it('increments downloads for existing skill', async () => {
+    await incrementDownloads('skill-one');
+    await incrementDownloads('skill-one');
+    await incrementDownloads('skill-one');
+
+    const entry = realDb.prepare('SELECT * FROM registry_entries WHERE id = ?').get('skill-one');
+    expect(entry.downloads).toBe(3);
+  });
+
+  it('tracks separate skills independently', async () => {
+    await incrementDownloads('skill-a');
+    await incrementDownloads('skill-a');
+    await incrementDownloads('skill-b');
+
+    const a = realDb.prepare('SELECT downloads FROM registry_entries WHERE id = ?').get('skill-a');
+    const b = realDb.prepare('SELECT downloads FROM registry_entries WHERE id = ?').get('skill-b');
+    expect(a.downloads).toBe(2);
+    expect(b.downloads).toBe(1);
+  });
+
+  it('updates popularity on increment', async () => {
+    await rateSkill('pop-skill', 4);
+    await incrementDownloads('pop-skill');
+    const entry = realDb.prepare('SELECT downloads, popularity FROM registry_entries WHERE id = ?').get('pop-skill');
+    expect(entry.downloads).toBe(1);
+    expect(entry.popularity).toBeGreaterThan(0);
+  });
+});
+
+// ── Rating ─────────────────────────────────────────────────────────────────────
+
+describe('rateSkill', () => {
+  let realDb;
+
+  beforeEach(() => {
+    realDb = createRegistryDb();
+    vi.mocked(getDb).mockReturnValue(realDb);
+  });
+
+  afterEach(() => {
+    realDb.close();
+  });
+
+  it('accepts first rating', async () => {
+    const r = await rateSkill('my-skill', 4.5);
+    expect(r).toEqual({ ok: true });
+
+    const entry = realDb.prepare('SELECT * FROM registry_entries WHERE id = ?').get('my-skill');
+    expect(entry.rating).toBe(4.5);
+    expect(entry.rating_count).toBe(1);
+  });
+
+  it('computes weighted average for multiple ratings', async () => {
+    await rateSkill('skill-r', 4);
+    await rateSkill('skill-r', 5);
+    await rateSkill('skill-r', 3);
+
+    const entry = realDb.prepare('SELECT rating, rating_count FROM registry_entries WHERE id = ?').get('skill-r');
+    // (4*1 + 5*1 + 3*1) / 3 = 12/3 = 4
+    expect(entry.rating).toBe(4);
+    expect(entry.rating_count).toBe(3);
+  });
+
+  it('rejects rating out of range', async () => {
+    const rLow = await rateSkill('skill', -1);
+    expect(rLow.ok).toBe(false);
+    expect(rLow.error).toMatch(/between 0 and 5/);
+
+    const rHigh = await rateSkill('skill', 6);
+    expect(rHigh.ok).toBe(false);
+    expect(rHigh.error).toMatch(/between 0 and 5/);
+  });
+
+  it('rejects non-numeric rating', async () => {
+    const r = await rateSkill('skill', 'good');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/between 0 and 5/);
+  });
+
+  it('preserves existing trust level when rating', async () => {
+    await setTrustLevel('trusted-skill', 'official');
+    await rateSkill('trusted-skill', 5);
+
+    const entry = realDb.prepare('SELECT trust_level, rating FROM registry_entries WHERE id = ?').get('trusted-skill');
+    expect(entry.trust_level).toBe('official');
+    expect(entry.rating).toBe(5);
+  });
+
+  it('handles ratings at boundary values', async () => {
+    await rateSkill('min-skill', 0);
+    await rateSkill('max-skill', 5);
+
+    const min = realDb.prepare('SELECT rating FROM registry_entries WHERE id = ?').get('min-skill');
+    const max = realDb.prepare('SELECT rating FROM registry_entries WHERE id = ?').get('max-skill');
+    expect(min.rating).toBe(0);
+    expect(max.rating).toBe(5);
   });
 });

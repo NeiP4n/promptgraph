@@ -8,6 +8,13 @@ export const PROMPTGRAPH_DIR = path.join(CLAUDE_DIR, '.promptgraph');
 export const SKILLS_STORE_DIR = path.join(CLAUDE_DIR, 'skills-store');
 const CONFIG_PATH = path.join(PROMPTGRAPH_DIR, 'config.json');
 
+export const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024  // 50 MB per file
+export const MAX_FILE_COUNT = 50000                  // max files per repo
+export const MAX_REPO_SIZE = 500 * 1024 * 1024      // 500 MB per repo
+export const RATE_LIMIT_REQUESTS = 30               // requests per window
+export const RATE_LIMIT_WINDOW_MS = 60000           // 1 minute window
+export const BATCH_SIZE = 100                       // batch indexing size
+
 const DEFAULTS = {
   sources: [
     { dir: path.join(CLAUDE_DIR, 'skills-store'), source: 'skills-store' },

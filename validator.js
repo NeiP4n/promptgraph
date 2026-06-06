@@ -1,5 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import matter from 'gray-matter';
+import { MAX_DOWNLOAD_SIZE } from './config.js';
 
 // patterns that indicate malicious or junk skills
 const DANGEROUS_PATTERNS = [
@@ -86,6 +88,19 @@ export function validateSkill(filePath) {
   if (pathParts.includes('..')) {
     errors.push('Path traversal detected: file path contains ".."');
   }
+
+  // extension whitelist — reject unexpected file types
+  const ALLOWED_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml', '.txt', '.js', '.ts', '.py', '.rs', '.toml']);
+  const ext = path.extname(filePath).toLowerCase();
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    errors.push(`File extension "${ext}" not allowed. Allowed: ${[...ALLOWED_EXTENSIONS].join(', ')}`);
+  }
+
+  // binary content detection — must be valid UTF-8 with no null bytes
+  if (raw.includes('\0')) {
+    errors.push('File contains null bytes (binary content)');
+  }
+
   if (['readme.md', 'changelog.md', 'license.md', 'contributing.md'].includes(base)) {
     warnings.push('Filename looks like a docs file, not a skill.');
   }
@@ -140,6 +155,15 @@ export function validateBundle(def) {
   }
 
   return { ok: errors.length === 0, errors, warnings };
+}
+
+export function sanitizeExternalContent(content) {
+  if (typeof content !== 'string') return ''
+  let sanitized = content.replace(/\0/g, '')
+  if (Buffer.byteLength(sanitized, 'utf8') > MAX_DOWNLOAD_SIZE) {
+    sanitized = Buffer.from(sanitized, 'utf8').subarray(0, MAX_DOWNLOAD_SIZE).toString('utf8')
+  }
+  return sanitized
 }
 
 // CLI: node validator.js <file>
