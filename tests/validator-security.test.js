@@ -30,14 +30,14 @@ ${VALID_BODY}`);
     expect(r.errors).toHaveLength(0);
   });
 
-  it('rejects missing name', () => {
+  it('warns on missing name (derives from filename)', () => {
     const fp = write('noname.md', `---
 description: has description only test skill
 ---
 ${VALID_BODY}`);
     const r = validateSkill(fp);
-    expect(r.ok).toBe(false);
-    expect(r.errors.some(e => /name/i.test(e))).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => /name/i.test(w))).toBe(true);
   });
 
   it('rejects too-short file (< 200 chars)', () => {
@@ -74,25 +74,25 @@ ${VALID_BODY}`);
     expect(r.errors.some(e => /name/i.test(e))).toBe(true);
   });
 
-  it('rejects missing description', () => {
+  it('warns on missing description (derives from content)', () => {
     const fp = write('nodesc.md', `---
 name: no-desc
 ---
 ${VALID_BODY}`);
     const r = validateSkill(fp);
-    expect(r.ok).toBe(false);
-    expect(r.errors.some(e => /description/i.test(e))).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => /description/i.test(w))).toBe(true);
   });
 
-  it('rejects description too short (< 15 chars)', () => {
+  it('warns on description too short (< 15 chars)', () => {
     const fp = write('shortdesc.md', `---
 name: short-desc
 description: hi
 ---
 ${VALID_BODY}`);
     const r = validateSkill(fp);
-    expect(r.ok).toBe(false);
-    expect(r.errors.some(e => /description/i.test(e))).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => /description/i.test(w))).toBe(true);
   });
 
   it('warns for short body (< 200 chars but > 0)', () => {

@@ -50,22 +50,22 @@ export function validateSkill(filePath) {
     return { ok: false, errors, warnings };
   }
 
-  // name
+  // name — derive from filename if missing (handles plain .md repos)
   if (!data.name) {
-    errors.push('Missing required field: name');
+    warnings.push('Missing frontmatter "name" — derived from filename');
   } else if (typeof data.name !== 'string') {
     errors.push('Field "name" must be a string');
   } else if (!NAME_RE.test(data.name)) {
     errors.push(`Invalid name "${data.name}". Use lowercase, digits, hyphens (2-64 chars).`);
   }
 
-  // description
+  // description — derive from first paragraph if missing
   if (!data.description) {
-    errors.push('Missing required field: description');
+    warnings.push('Missing frontmatter "description" — derived from content');
   } else if (typeof data.description !== 'string') {
     errors.push('Field "description" must be a string');
   } else if (data.description.trim().length < MIN_DESCRIPTION_LENGTH) {
-    errors.push(`Description too short (min ${MIN_DESCRIPTION_LENGTH} chars).`);
+    warnings.push(`Description very short (${data.description.trim().length} chars).`);
   }
 
   // body must have real instruction content

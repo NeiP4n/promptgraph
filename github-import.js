@@ -436,43 +436,33 @@ async function classifierCleanup(dest) {
 
   const parsed = [];
   const fileMap = [];
-  let heuristicRemoved = 0;
 
   for (const fp of mdFiles) {
     try {
       const raw = fs.readFileSync(fp, 'utf8');
       if (!isSkillFile(fp, raw)) continue;
-      if (!seemsLikeSkill(raw)) {
-        try { fs.unlinkSync(fp); heuristicRemoved++; } catch {}
-        continue;
-      }
       parsed.push(parseSkillFile(fp, '', { raw }));
       fileMap.push(fp);
     } catch {}
   }
 
-  if (heuristicRemoved > 0) {
-    console.log(`Removed ${heuristicRemoved} files by content heuristic`);
-  }
-
   if (parsed.length === 0) {
-    if (heuristicRemoved > 0) removeEmptyDirs(dest);
+    removeEmptyDirs(dest);
     return;
   }
 
   const filtered = await filterWithClassifier(parsed);
   const keptPaths = new Set(filtered.map(s => s.path));
 
-  let classifierRemoved = 0;
+  let removed = 0;
   for (const fp of fileMap) {
     if (!keptPaths.has(fp)) {
-      try { fs.unlinkSync(fp); classifierRemoved++; } catch {}
+      try { fs.unlinkSync(fp); removed++; } catch {}
     }
   }
 
-  const totalRemoved = heuristicRemoved + classifierRemoved;
-  if (totalRemoved > 0) {
-    console.log(`Removed ${totalRemoved} non-skill files (heuristic: ${heuristicRemoved}, classifier: ${classifierRemoved})`);
+  if (removed > 0) {
+    console.log(`Removed ${removed} non-skill files (classifier)`);
     removeEmptyDirs(dest);
   }
 }

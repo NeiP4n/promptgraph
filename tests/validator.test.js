@@ -22,11 +22,11 @@ describe('validateSkill', () => {
     expect(validateSkill(fp).ok).toBe(true);
   });
 
-  it('rejects missing name', () => {
+  it('warns on missing name (derives from filename)', () => {
     const fp = write('noname.md', `---\ndescription: has description only\n---\n${validBody}`);
     const r = validateSkill(fp);
-    expect(r.ok).toBe(false);
-    expect(r.errors.some(e => /name/i.test(e))).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => /name/i.test(w))).toBe(true);
   });
 
   it('rejects too-short files', () => {
