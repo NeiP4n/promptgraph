@@ -675,18 +675,25 @@ export async function importFromGitHubLight(repoUrl) {
   if (fs.existsSync(destBase)) fs.rmSync(destBase, { recursive: true, force: true });
   fs.mkdirSync(destBase, { recursive: true });
 
+  const CONCURRENT = 5;
+  let dlIdx = 0;
   let downloaded = 0;
-  for (const file of mdFiles) {
-    const destPath = path.join(destBase, file.fullPath);
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    try {
-      const content = await streamDownload(file.download_url);
-      fs.writeFileSync(destPath, content);
-      downloaded++;
-    } catch {
-      // skip failed downloads
+  const dlErr = [];
+  async function dlWorker() {
+    while (dlIdx < mdFiles.length) {
+      const file = mdFiles[dlIdx++];
+      const destPath = path.join(destBase, file.fullPath);
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      try {
+        const content = await streamDownload(file.download_url);
+        fs.writeFileSync(destPath, content);
+        downloaded++;
+      } catch (e) {
+        dlErr.push(e.message?.slice(0, 80) || 'download failed');
+      }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENT, mdFiles.length) }, () => dlWorker()));
 
   if (downloaded === 0) {
     fs.rmSync(destBase, { recursive: true, force: true });
