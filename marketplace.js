@@ -13,6 +13,7 @@ import { isSkillFile } from './parser.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILL_COUNT_CACHE = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
+const DEAD_REPOS_FILE = path.join(PROMPTGRAPH_DIR, 'dead-repos.json');
 const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
 
 // Atomically write content to dest via tmp — cleans up on failure
@@ -140,6 +141,21 @@ function writeSkillCountCache(data) {
   try {
     fs.mkdirSync(path.dirname(SKILL_COUNT_CACHE), { recursive: true });
     fs.writeFileSync(SKILL_COUNT_CACHE, JSON.stringify(data));
+  } catch {}
+}
+
+function readDeadRepos() {
+  try { return JSON.parse(fs.readFileSync(DEAD_REPOS_FILE, 'utf8')); } catch { return []; }
+}
+
+function markDeadRepo(repoUrl) {
+  try {
+    const dead = readDeadRepos();
+    if (!dead.includes(repoUrl)) {
+      dead.push(repoUrl);
+      fs.mkdirSync(path.dirname(DEAD_REPOS_FILE), { recursive: true });
+      fs.writeFileSync(DEAD_REPOS_FILE, JSON.stringify(dead, null, 2));
+    }
   } catch {}
 }
 
@@ -275,7 +291,10 @@ export async function browseBundles(topK = 20) {
   try {
     const text = await fetchText(REGISTRY_URL);
     const registry = JSON.parse(text);
-    const bundles = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok);
+    const deadRepos = new Set(readDeadRepos());
+    const bundles = (registry.bundles || []).filter(b =>
+      validateRegistryEntry(b).ok && !deadRepos.has(b.repo_url)
+    );
     const cache = readSkillCountCache();
     const now = Date.now();
     let changed = false;
@@ -346,7 +365,14 @@ export async function installBundle(bundleId) {
     if (!bundle) return { error: `No bundle matching "${bundleId}"` };
 
     if (bundle.repo_url) {
-      await importFromGitHub(bundle.repo_url);
+      try {
+        await importFromGitHub(bundle.repo_url);
+      } catch (e) {
+        if (e.message && e.message.includes('No valid skills')) {
+          markDeadRepo(bundle.repo_url);
+        }
+        throw e;
+      }
       return { success: true, bundle: bundle.name, type: 'repo_import', repo_url: bundle.repo_url };
     }
 
