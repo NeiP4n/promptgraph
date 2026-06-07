@@ -7,6 +7,7 @@ import { indexAll, indexSource } from './indexer.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR, MAX_DOWNLOAD_SIZE, MAX_FILE_COUNT, MAX_REPO_SIZE, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config.js';
 import { validateSkill } from './validator.js';
 import { isSkillFile, filterWithClassifier, parseSkillFile } from './parser.js';
+import { getFeatureVector } from './src/filter/classifier.js';
 import { RateLimiter } from './src/utils/rate-limiter.js';
 
 const githubRateLimiter = new RateLimiter({ maxRequests: RATE_LIMIT_REQUESTS, windowMs: RATE_LIMIT_WINDOW_MS })
@@ -429,36 +430,68 @@ function detectSkillsDirLocal(repoRoot) {
   return { dir: repoRoot, label: '(root)', sparse: false };
 }
 
-// If the embedding classifier is trained, remove files classified as non-skills
+// Heuristic: a file with no skill-like content (headers, code, lists, verbs)
+// is probably prose/doc, not a skill. Runs with or without a trained model.
+const INSTRUCTION_VERBS = /\b(run|use|apply|execute|check|debug|fix|create|add|remove|deploy|test|write|generate|analyze|review|refactor|optimize|configure|setup|install|scan|audit|validate|search|find|extract|parse)\b/i;
+
+function seemsLikeSkill(raw) {
+  const v = getFeatureVector(raw);
+  const hasHeaders = v[1] || v[8];           // ≥1 header or ≥4 headers
+  const hasCode = v[4];                       // ``` or indented code
+  const hasNumberedList = v[5];
+  const hasBulletList = v[6];
+  const hasVerb = INSTRUCTION_VERBS.test(raw);
+  const hasActionable = hasCode || hasNumberedList || hasBulletList || hasVerb;
+  // Too short or no headers + nothing actionable → not a skill
+  if (v[12]) return false;                   // raw.length < 150
+  if (!hasHeaders && !hasActionable) return false;
+  return true;
+}
+
+// Remove files that look like non-skills — first by heuristic, then by embedding classifier
 async function classifierCleanup(dest) {
   const mdFiles = globSync(`${dest}/**/*.md`);
   if (mdFiles.length === 0) return;
 
   const parsed = [];
   const fileMap = [];
+  let heuristicRemoved = 0;
+
   for (const fp of mdFiles) {
     try {
       const raw = fs.readFileSync(fp, 'utf8');
       if (!isSkillFile(fp, raw)) continue;
+      if (!seemsLikeSkill(raw)) {
+        try { fs.unlinkSync(fp); heuristicRemoved++; } catch {}
+        continue;
+      }
       parsed.push(parseSkillFile(fp, '', { raw }));
       fileMap.push(fp);
     } catch {}
   }
 
-  if (parsed.length === 0) return;
+  if (heuristicRemoved > 0) {
+    console.log(`Removed ${heuristicRemoved} files by content heuristic`);
+  }
+
+  if (parsed.length === 0) {
+    if (heuristicRemoved > 0) removeEmptyDirs(dest);
+    return;
+  }
 
   const filtered = await filterWithClassifier(parsed);
   const keptPaths = new Set(filtered.map(s => s.path));
 
-  let removed = 0;
+  let classifierRemoved = 0;
   for (const fp of fileMap) {
     if (!keptPaths.has(fp)) {
-      try { fs.unlinkSync(fp); removed++; } catch {}
+      try { fs.unlinkSync(fp); classifierRemoved++; } catch {}
     }
   }
 
-  if (removed > 0) {
-    console.log(`Removed ${removed} files classified as non-skills`);
+  const totalRemoved = heuristicRemoved + classifierRemoved;
+  if (totalRemoved > 0) {
+    console.log(`Removed ${totalRemoved} non-skill files (heuristic: ${heuristicRemoved}, classifier: ${classifierRemoved})`);
     removeEmptyDirs(dest);
   }
 }
