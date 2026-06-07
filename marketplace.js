@@ -425,12 +425,14 @@ export async function installBundle(bundleId) {
 const _bgQueue = [];
 let _bgRunning = false;
 let _bgCurrentId = null;
+const _bgPendingKeys = new Set();
 
 async function _bgProcess() {
   if (_bgRunning) return;
   _bgRunning = true;
   while (_bgQueue.length > 0) {
-    const { bundle, validSkills, onDone } = _bgQueue.shift();
+    const { bundle, validSkills, onDone, _dedupKey } = _bgQueue.shift();
+    if (_dedupKey) _bgPendingKeys.delete(_dedupKey);
     _bgCurrentId = bundle.id;
     try {
       const result = bundle.repo_url
@@ -450,15 +452,23 @@ async function _bgProcess() {
 // The actual work is serialized through an internal queue.
 // onDone(err, result) is called when the queue finishes processing this bundle.
 export async function installBundleBg(bundleId, onDone) {
+  const q = String(bundleId).trim().toLowerCase();
+  // Synchronous dedup check BEFORE any await — prevents race on double-Enter
+  if (_bgPendingKeys.has(q)) {
+    return { dedup: true, error: `"${bundleId}" is already queued or installing` };
+  }
+  _bgPendingKeys.add(q);
+
   const found = await _findBundle(bundleId);
-  if (found.error) return { error: found.error };
+  if (found.error) { _bgPendingKeys.delete(q); return found; }
   const { bundle, validSkills } = found;
 
   if (_bgCurrentId === bundle.id || _bgQueue.some(e => e.bundle.id === bundle.id)) {
-    return { error: `"${bundle.name}" is already queued or installing` };
+    _bgPendingKeys.delete(q);
+    return { dedup: true, error: `"${bundle.name}" is already queued or installing` };
   }
 
-  _bgQueue.push({ bundle, validSkills, onDone });
+  _bgQueue.push({ bundle, validSkills, onDone, _dedupKey: q });
   _bgProcess();
   return { queued: true, id: bundle.id, name: bundle.name };
 }

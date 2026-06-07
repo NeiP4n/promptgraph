@@ -95,7 +95,10 @@ export default async function handler(args, bin) {
           validateAndPruneMarketplace();
           onStatus(true, `Installed ${item.name}`);
         });
-        if (r?.error) { onStatus(false, r.error.slice(0, 60)); return; }
+        if (r?.error) {
+          if (!r.dedup) onStatus(false, r.error.slice(0, 60));
+          return;
+        }
         onStatus(null, `Queued ${item.name}…`);
       } else {
         const r = await installSkill(item.code || item.id);
