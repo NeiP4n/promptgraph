@@ -373,6 +373,13 @@ export async function installBundle(bundleId) {
         }
         throw e;
       }
+      // Update skill count cache with real on-disk count (post-filters)
+      const real = localSkillCount(bundle.repo_url);
+      if (real !== null) {
+        const cache = readSkillCountCache();
+        cache[bundle.repo_url] = { count: real, ts: Date.now() };
+        writeSkillCountCache(cache);
+      }
       return { success: true, bundle: bundle.name, type: 'repo_import', repo_url: bundle.repo_url };
     }
 
