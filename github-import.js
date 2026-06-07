@@ -580,7 +580,7 @@ export async function importFromGitHub(repoUrl) {
 
   await classifierCleanup(dest);
 
-  // Update skill count cache with real survivor count
+  // Count survivors after all cleanup
   const realCount = globSync(`${dest}/**/*.md`).length;
   const cacheKey = url.replace(/\.git$/, '');
   const cachePath = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
@@ -590,6 +590,11 @@ export async function importFromGitHub(repoUrl) {
     cache[cacheKey] = { count: realCount, ts: Date.now() };
     fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
   } catch {}
+
+  if (realCount < 1) {
+    fs.rmSync(dest, { recursive: true, force: true });
+    throw new Error(`No valid skills in repo — all files were filtered out`);
+  }
 
   const { dir: localDir, label: localLabel } = detectSkillsDirLocal(dest);
   // Prefer the known skillsSubdir (from API detection or sparse patterns) as the
@@ -608,8 +613,6 @@ export async function importFromGitHub(repoUrl) {
   } else {
     console.log(`Full clone: scanning ${label} (${mdFiles.length} .md files)`);
   }
-
-  if (mdFiles.length < 1) console.warn('Warning: no .md files found');
 
   const config = loadConfig();
   const repoSource = `github:${repoName}`;

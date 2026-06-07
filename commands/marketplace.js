@@ -91,6 +91,10 @@ export default async function handler(args, bin) {
         const r = await installBundle(item.id);
         if (r?.error) throw new Error(r.error);
         installedSet.add(item.id);
+        // Update skill count on the bundle object to reflect real survivors
+        const { getCachedCount: getCount } = await import('../bundle-counts.js');
+        const cached = getCount(item.repo_url);
+        if (cached !== null) item.skillCount = cached;
       } else {
         const r = await installSkill(item.code || item.id);
         if (r?.error) throw new Error(r.error);
