@@ -8,7 +8,7 @@ import { getDb } from './db.js';
 import { globSync } from 'glob';
 import { validateSkill, validateBundle } from './validator.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
-import { importFromGitHub, validateRepoSkills } from './github-import.js';
+import { importFromGitHubLight, validateRepoSkills } from './github-import.js';
 import { isSkillFile } from './parser.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
@@ -353,65 +353,114 @@ function ensureMarketplaceSource() {
   }
 }
 
+// ── helpers extracted from installBundle ─────────────────────────────────────
+
+async function _findBundle(bundleId) {
+  const text = await fetchText(REGISTRY_URL);
+  const registry = JSON.parse(text);
+  const q = String(bundleId).trim().toLowerCase();
+  const validSkills = (registry.skills || []).filter(s => validateRegistryEntry(s).ok);
+  const bundle = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok).find(b =>
+    (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
+  );
+  if (!bundle) return { error: `No bundle matching "${bundleId}"` };
+  return { bundle, validSkills };
+}
+
+async function _execRepoInstall(bundle) {
+  try {
+    await importFromGitHubLight(bundle.repo_url);
+  } catch (e) {
+    if (e.message && e.message.includes('No valid skills')) markDeadRepo(bundle.repo_url);
+    throw e;
+  }
+  const real = localSkillCount(bundle.repo_url);
+  if (real !== null) {
+    const cache = readSkillCountCache();
+    cache[bundle.repo_url] = { count: real, ts: Date.now() };
+    writeSkillCountCache(cache);
+  }
+  return { success: true, bundle: bundle.name, type: 'repo_import', repo_url: bundle.repo_url };
+}
+
+async function _execSkillsInstall(bundle, validSkills) {
+  fs.mkdirSync(SKILLS_DIR, { recursive: true });
+  ensureMarketplaceSource();
+  const installed = [];
+  const failed = [];
+  const delay = (ms) => new Promise(r => setTimeout(r, ms));
+  for (const skillId of bundle.skills || []) {
+    const skill = validSkills.find(s => s.id === skillId);
+    if (!skill?.raw_url) { failed.push(skillId); continue; }
+    try {
+      if (installed.length > 0) await delay(300);
+      const content = await fetchText(skill.raw_url);
+      const dest = path.join(SKILLS_DIR, `${skillId}.md`);
+      const resolvedDest = path.resolve(dest);
+      if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) { failed.push(skillId); continue; }
+      const v = writeSkillAtomic(dest, content);
+      if (!v.ok) { failed.push(skillId); continue; }
+      installed.push(skillId);
+    } catch { failed.push(skillId); }
+  }
+  return { success: true, bundle: bundle.name, installed, failed, dir: SKILLS_DIR };
+}
+
 export async function installBundle(bundleId) {
   try {
-    const text = await fetchText(REGISTRY_URL);
-    const registry = JSON.parse(text);
-    const q = String(bundleId).trim().toLowerCase();
-    const validSkills = (registry.skills || []).filter(s => validateRegistryEntry(s).ok);
-    const bundle = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok).find(b =>
-      (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
-    );
-    if (!bundle) return { error: `No bundle matching "${bundleId}"` };
-
-    if (bundle.repo_url) {
-      try {
-        await importFromGitHub(bundle.repo_url);
-      } catch (e) {
-        if (e.message && e.message.includes('No valid skills')) {
-          markDeadRepo(bundle.repo_url);
-        }
-        throw e;
-      }
-      // Update skill count cache with real on-disk count (post-filters)
-      const real = localSkillCount(bundle.repo_url);
-      if (real !== null) {
-        const cache = readSkillCountCache();
-        cache[bundle.repo_url] = { count: real, ts: Date.now() };
-        writeSkillCountCache(cache);
-      }
-      return { success: true, bundle: bundle.name, type: 'repo_import', repo_url: bundle.repo_url };
-    }
-
-    fs.mkdirSync(SKILLS_DIR, { recursive: true });
-    ensureMarketplaceSource();
-    const installed = [];
-    const failed = [];
-
-    const delay = (ms) => new Promise(r => setTimeout(r, ms));
-    for (const skillId of bundle.skills || []) {
-      const skill = validSkills.find(s => s.id === skillId);
-      if (!skill?.raw_url) { failed.push(skillId); continue; }
-      try {
-        if (installed.length > 0) await delay(300); // rate limit: 300ms between requests
-        const content = await fetchText(skill.raw_url);
-        const dest = path.join(SKILLS_DIR, `${skillId}.md`);
-        const resolvedDest = path.resolve(dest);
-        if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) {
-          failed.push(skillId); continue;
-        }
-        const v = writeSkillAtomic(dest, content);
-        if (!v.ok) { failed.push(skillId); continue; }
-        installed.push(skillId);
-      } catch {
-        failed.push(skillId);
-      }
-    }
-
-    return { success: true, bundle: bundle.name, installed, failed, dir: SKILLS_DIR };
+    const found = await _findBundle(bundleId);
+    if (found.error) return { error: found.error };
+    const { bundle, validSkills } = found;
+    return bundle.repo_url
+      ? await _execRepoInstall(bundle)
+      : await _execSkillsInstall(bundle, validSkills);
   } catch (e) {
     return { error: e.message };
   }
+}
+
+// ── Background install queue ──────────────────────────────────────────────────
+// Allows the TUI to queue multiple installs without blocking.
+
+const _bgQueue = [];
+let _bgRunning = false;
+let _bgCurrentId = null;
+
+async function _bgProcess() {
+  if (_bgRunning) return;
+  _bgRunning = true;
+  while (_bgQueue.length > 0) {
+    const { bundle, validSkills, onDone } = _bgQueue.shift();
+    _bgCurrentId = bundle.id;
+    try {
+      const result = bundle.repo_url
+        ? await _execRepoInstall(bundle)
+        : await _execSkillsInstall(bundle, validSkills);
+      await onDone?.(null, result);
+    } catch (e) {
+      await onDone?.(e, null);
+    } finally {
+      _bgCurrentId = null;
+    }
+  }
+  _bgRunning = false;
+}
+
+// Install a bundle in the background, returning immediately.
+// The actual work is serialized through an internal queue.
+// onDone(err, result) is called when the queue finishes processing this bundle.
+export async function installBundleBg(bundleId, onDone) {
+  const found = await _findBundle(bundleId);
+  if (found.error) return { error: found.error };
+  const { bundle, validSkills } = found;
+
+  if (_bgCurrentId === bundle.id || _bgQueue.some(e => e.bundle.id === bundle.id)) {
+    return { error: `"${bundle.name}" is already queued or installing` };
+  }
+
+  _bgQueue.push({ bundle, validSkills, onDone });
+  _bgProcess();
+  return { queued: true, id: bundle.id, name: bundle.name };
 }
 
 function ghPublish(filePath, desc) {

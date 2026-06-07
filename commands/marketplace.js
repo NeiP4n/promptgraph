@@ -25,7 +25,7 @@ export default async function handler(args, bin) {
     error('marketplace TUI requires an interactive terminal');
     process.exit(1);
   }
-  const { browseMarketplace, browseBundles, installSkill, installBundle } = await import('../marketplace.js');
+  const { browseMarketplace, browseBundles, installSkill, installBundle, installBundleBg, validateAndPruneMarketplace } = await import('../marketplace.js');
   const { loadConfig: _lcMkt } = await import('../config.js');
   const { getDb: _getDbMkt } = await import('../db.js');
   const { spinner: spin2 } = await import('../cli.js');
@@ -81,30 +81,29 @@ export default async function handler(args, bin) {
   const { loadConfig: _lcR, saveConfig: _scR, SKILLS_STORE_DIR: _ssR } = await import('../config.js');
   const { getDb: _getDbR } = await import('../db.js');
 
-  const { validateAndPruneMarketplace } = await import('../marketplace.js');
-
   await runTUI(
     Array.isArray(skills) ? skills : [],
     bundlesWithCounts,
-    async (item) => {
+    async (item, onStatus) => {
       if (item.type === 'bundle') {
-        const r = await installBundle(item.id);
-        if (r?.error) throw new Error(r.error);
-        installedSet.add(item.id);
-        // Update skill count on the bundle object to reflect real survivors
-        const { getCachedCount: getCount } = await import('../bundle-counts.js');
-        const cached = getCount(item.repo_url);
-        if (cached !== null) item.skillCount = cached;
+        const r = await installBundleBg(item.id, async (err, result) => {
+          if (err) { onStatus(false, err.message?.slice(0, 60) || 'Install failed'); return; }
+          installedSet.add(item.id);
+          const { getCachedCount } = await import('../bundle-counts.js');
+          const cached = getCachedCount(item.repo_url);
+          if (cached !== null) item.skillCount = cached;
+          validateAndPruneMarketplace();
+          onStatus(true, `Installed ${item.name}`);
+        });
+        if (r?.error) { onStatus(false, r.error.slice(0, 60)); return; }
+        onStatus(null, `Queued ${item.name}…`);
       } else {
         const r = await installSkill(item.code || item.id);
-        if (r?.error) throw new Error(r.error);
+        if (r?.error) { onStatus(false, r.error.slice(0, 60)); return; }
         installedSet.add(item.id);
         if (item.code) installedSet.add(item.code);
-      }
-      // After every install, prune invalid files marketplace-wide
-      const pruneResult = validateAndPruneMarketplace();
-      if (pruneResult.removed.length > 0) {
-        console.log(`Pruned ${pruneResult.removed.length} invalid files from marketplace.`);
+        validateAndPruneMarketplace();
+        onStatus(true, `Installed ${item.name}`);
       }
     },
     installedSet,

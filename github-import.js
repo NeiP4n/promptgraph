@@ -617,3 +617,129 @@ export async function importFromGitHub(repoUrl) {
   await indexSource(skillsDir, repoSource);
   console.log(`Done! Imported from ${repoName}/${label}`);
 }
+
+// ── light version (no git clone) ───────────────────────────────────────────────
+
+const SKIP_DOCS_RE = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap|claude|bugs?\b|feature.?request)/i;
+
+export async function importFromGitHubLight(repoUrl) {
+  if (!repoUrl) throw new Error('Missing repoUrl');
+
+  const url = repoUrl.startsWith('http') ? repoUrl : `https://github.com/${repoUrl}`;
+  const ownerRepo = url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+  const repoName = ownerRepo.replace('/', '-');
+  const destBase = path.join(SKILLS_STORE_DIR, 'github', repoName);
+
+  const ok = await repoExists(ownerRepo);
+  if (!ok) throw new Error(`Repository not found (404): ${url}`);
+
+  const detected = await detectSkillsDirFromAPI(ownerRepo);
+  const subdir = detected?.subdir || null;
+
+  let branch = 'main';
+  try {
+    const repoJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}`);
+    branch = JSON.parse(repoJson).default_branch || 'main';
+  } catch {}
+
+  let mdFiles;
+  if (subdir) {
+    const treeJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}/git/trees/HEAD?recursive=1`);
+    const tree = JSON.parse(treeJson);
+    const prefix = subdir + '/';
+    mdFiles = (tree.tree || [])
+      .filter(f => f.type === 'blob' && f.path.startsWith(prefix) && f.path.endsWith('.md'))
+      .map(f => ({
+        relativePath: f.path.replace(prefix, ''),
+        fullPath: f.path,
+        download_url: `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${f.path}`,
+      }));
+  } else {
+    const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents`);
+    const entries = JSON.parse(json);
+    mdFiles = entries
+      .filter(e => e.type === 'file' && e.name.endsWith('.md'))
+      .map(e => ({
+        relativePath: e.name,
+        fullPath: e.name,
+        download_url: e.download_url,
+      }));
+  }
+
+  if (mdFiles.length === 0) throw new Error(`No .md files found in ${ownerRepo}`);
+
+  const beforeFilter = mdFiles.length;
+  mdFiles = mdFiles.filter(f => !SKIP_DOCS_RE.test(f.relativePath.replace(/\.md$/i, '')));
+  if (mdFiles.length === 0) throw new Error(`All ${beforeFilter} .md files filtered as docs (README, LICENSE, etc.)`);
+
+  if (fs.existsSync(destBase)) fs.rmSync(destBase, { recursive: true, force: true });
+  fs.mkdirSync(destBase, { recursive: true });
+
+  let downloaded = 0;
+  for (const file of mdFiles) {
+    const destPath = path.join(destBase, file.fullPath);
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    try {
+      const content = await streamDownload(file.download_url);
+      fs.writeFileSync(destPath, content);
+      downloaded++;
+    } catch {
+      // skip failed downloads
+    }
+  }
+
+  if (downloaded === 0) {
+    fs.rmSync(destBase, { recursive: true, force: true });
+    throw new Error('Failed to download any files');
+  }
+
+  const allMd = globSync(`${destBase}/**/*.md`);
+  let removed = 0;
+  for (const fp of allMd) {
+    if (!isSkillFile(fp)) { try { fs.unlinkSync(fp); removed++; } catch {} }
+  }
+  if (removed > 0) removeEmptyDirs(destBase);
+
+  const remaining = globSync(`${destBase}/**/*.md`);
+  let removedV = 0;
+  for (const fp of remaining) {
+    const v = validateSkill(fp);
+    if (!v.ok) { try { fs.unlinkSync(fp); removedV++; } catch {} }
+  }
+  if (removedV > 0) removeEmptyDirs(destBase);
+
+  await classifierCleanup(destBase);
+
+  const realCount = globSync(`${destBase}/**/*.md`).length;
+  const cacheKey = url.replace(/\.git$/, '');
+  const cachePath = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
+  try {
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8') || '{}');
+    cache[cacheKey] = { count: realCount, ts: Date.now() };
+    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
+  } catch {}
+
+  if (realCount < 1) {
+    fs.rmSync(destBase, { recursive: true, force: true });
+    throw new Error('No valid skills in repo — all files were filtered out');
+  }
+
+  const { dir: localDir, label: localLabel } = detectSkillsDirLocal(destBase);
+  const skillsDir = subdir ? path.join(destBase, subdir) : localDir;
+  const label = subdir || localLabel;
+  const mdFilesInSkills = globSync(`${skillsDir}/**/*.md`);
+
+  const config = loadConfig();
+  const repoSource = `github:${repoName}`;
+  if (!config.sources.find(s => s.dir === skillsDir)) {
+    const oldIdx = config.sources.findIndex(s => s.source === repoSource);
+    if (oldIdx !== -1) config.sources.splice(oldIdx, 1);
+    config.sources.push({ dir: skillsDir, source: repoSource });
+    saveConfig(config);
+  }
+
+  console.log();
+  await indexSource(skillsDir, repoSource);
+  console.log(`Done! Imported from ${repoName}/${label} (${realCount} skills, no git clone)`);
+}

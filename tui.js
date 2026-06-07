@@ -116,12 +116,12 @@ function render(state, installedSet = new Set()) {
   write(searchLabel + searchVal + CLEAR_EOL + '\n');
 
   // Row 4: separator (with optional status inline or spinner)
-  if (state.installing) {
-    const frame = SPINNER_FRAMES[Math.floor(Date.now() / 120) % SPINNER_FRAMES.length];
-    write(dim('─'.repeat(4)) + magenta(` ${frame} Installing… `) + CLEAR_EOL + '\n');
-  } else if (status) {
-    const msg = status.ok ? green(' ✓ ' + status.msg) : red(' ✗ ' + status.msg);
-    write(dim('─'.repeat(4)) + msg + CLEAR_EOL + '\n');
+  if (status) {
+    let line;
+    if (status.ok === true) line = green(' ✓ ' + status.msg);
+    else if (status.ok === false) line = red(' ✗ ' + status.msg);
+    else line = cyan(' ⟳ ' + (status.msg || ''));
+    write(dim('─'.repeat(4)) + line + CLEAR_EOL + '\n');
   } else {
     write(dim('─'.repeat(cols)) + CLEAR_EOL + '\n');
   }
@@ -248,7 +248,6 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
     scroll: 0,
     items: allItems,
     status: null,
-    installing: false,
   };
 
   function refresh(q, t) {
@@ -391,21 +390,13 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
 
     if (key.name === 'return' || key.name === 'i') {
       const sel = state.items[state.cursor];
-      if (!sel || state.installing) return;
-      state.installing = true;
-      // Live spinner — keeps rendering during long installs
-      const spinInterval = setInterval(() => render(state, installedSet), 120);
-      render(state, installedSet);
-      try {
-        await installFn(sel);
-        clearInterval(spinInterval);
-        setStatus(true, `Installed ${sel.id}`);
-      } catch (e) {
-        clearInterval(spinInterval);
-        setStatus(false, e.message.slice(0, 60));
-      } finally {
-        state.installing = false;
-      }
+      if (!sel) return;
+      // Fire install in background — TUI stays responsive for queuing more
+      installFn(sel, (ok, msg) => {
+        setStatus(ok, msg);
+      }).catch(e => {
+        setStatus(false, e.message?.slice(0, 60) || 'Install failed');
+      });
       return;
     }
 
