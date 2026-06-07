@@ -7,7 +7,6 @@ import { indexAll, indexSource } from './indexer.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR, MAX_DOWNLOAD_SIZE, MAX_FILE_COUNT, MAX_REPO_SIZE, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config.js';
 import { validateSkill } from './validator.js';
 import { isSkillFile, filterWithClassifier, parseSkillFile } from './parser.js';
-import { getFeatureVector } from './src/filter/classifier.js';
 import { RateLimiter } from './src/utils/rate-limiter.js';
 
 const githubRateLimiter = new RateLimiter({ maxRequests: RATE_LIMIT_REQUESTS, windowMs: RATE_LIMIT_WINDOW_MS })
@@ -430,25 +429,7 @@ function detectSkillsDirLocal(repoRoot) {
   return { dir: repoRoot, label: '(root)', sparse: false };
 }
 
-// Heuristic: a file with no skill-like content (headers, code, lists, verbs)
-// is probably prose/doc, not a skill. Runs with or without a trained model.
-const INSTRUCTION_VERBS = /\b(run|use|apply|execute|check|debug|fix|create|add|remove|deploy|test|write|generate|analyze|review|refactor|optimize|configure|setup|install|scan|audit|validate|search|find|extract|parse)\b/i;
-
-function seemsLikeSkill(raw) {
-  const v = getFeatureVector(raw);
-  const hasHeaders = v[1] || v[8];           // ≥1 header or ≥4 headers
-  const hasCode = v[4];                       // ``` or indented code
-  const hasNumberedList = v[5];
-  const hasBulletList = v[6];
-  const hasVerb = INSTRUCTION_VERBS.test(raw);
-  const hasActionable = hasCode || hasNumberedList || hasBulletList || hasVerb;
-  // Too short or no headers + nothing actionable → not a skill
-  if (v[12]) return false;                   // raw.length < 150
-  if (!hasHeaders && !hasActionable) return false;
-  return true;
-}
-
-// Remove files that look like non-skills — first by heuristic, then by embedding classifier
+// Remove files classified as non-skills by embedding classifier (only if model is trained)
 async function classifierCleanup(dest) {
   const mdFiles = globSync(`${dest}/**/*.md`);
   if (mdFiles.length === 0) return;
@@ -598,6 +579,18 @@ export async function importFromGitHub(repoUrl) {
   }
 
   await classifierCleanup(dest);
+
+  // Update skill count cache with real survivor count
+  const realCount = globSync(`${dest}/**/*.md`).length;
+  const cachePath = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
+  try {
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    if (cache[url]) {
+      cache[url].count = realCount;
+      cache[url].ts = Date.now();
+      fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
+    }
+  } catch {}
 
   const { dir: localDir, label: localLabel } = detectSkillsDirLocal(dest);
   // Prefer the known skillsSubdir (from API detection or sparse patterns) as the
