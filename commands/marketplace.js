@@ -31,8 +31,11 @@ export default async function handler(args, bin) {
   const { spinner: spin2 } = await import('../cli.js');
   const sp = spin2('Fetching marketplace...');
   sp.start();
-  const [skills, bundles] = await Promise.all([browseMarketplace(1000), browseBundles(1000)]);
-  sp.stop();
+  try {
+    var [skills, bundles] = await Promise.all([browseMarketplace(1000), browseBundles(1000)]);
+  } finally {
+    sp.stop();
+  }
 
   if (skills?.error) { error(skills.error); process.exit(1); }
 

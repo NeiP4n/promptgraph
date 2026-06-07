@@ -22,8 +22,10 @@ const green   = chalk.green;
 const red     = chalk.red;
 const blue    = chalk.blue;
 const white   = chalk.white;
+const magenta = chalk.magenta;
 
 const CAT_ICON = { Engineering:'🛠', 'AI Tools':'🤖', Coding:'💻', Creative:'🎨', Security:'🔒', Community:'🌐' };
+const SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷']; // braille spinner
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -113,8 +115,11 @@ function render(state, installedSet = new Set()) {
     : dim(query ? query : 'type / to search, Tab to switch view');
   write(searchLabel + searchVal + CLEAR_EOL + '\n');
 
-  // Row 4: separator (with optional status inline)
-  if (status) {
+  // Row 4: separator (with optional status inline or spinner)
+  if (state.installing) {
+    const frame = SPINNER_FRAMES[Math.floor(Date.now() / 120) % SPINNER_FRAMES.length];
+    write(dim('─'.repeat(4)) + magenta(` ${frame} Installing… `) + CLEAR_EOL + '\n');
+  } else if (status) {
     const msg = status.ok ? green(' ✓ ' + status.msg) : red(' ✗ ' + status.msg);
     write(dim('─'.repeat(4)) + msg + CLEAR_EOL + '\n');
   } else {
@@ -388,11 +393,15 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
       const sel = state.items[state.cursor];
       if (!sel || state.installing) return;
       state.installing = true;
-      setStatus(null, `Installing ${sel.id}…`);
+      // Live spinner — keeps rendering during long installs
+      const spinInterval = setInterval(() => render(state, installedSet), 120);
+      render(state, installedSet);
       try {
         await installFn(sel);
+        clearInterval(spinInterval);
         setStatus(true, `Installed ${sel.id}`);
       } catch (e) {
+        clearInterval(spinInterval);
         setStatus(false, e.message.slice(0, 60));
       } finally {
         state.installing = false;
