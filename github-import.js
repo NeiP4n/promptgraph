@@ -582,14 +582,13 @@ export async function importFromGitHub(repoUrl) {
 
   // Update skill count cache with real survivor count
   const realCount = globSync(`${dest}/**/*.md`).length;
+  const cacheKey = url.replace(/\.git$/, '');
   const cachePath = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
   try {
-    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-    if (cache[url]) {
-      cache[url].count = realCount;
-      cache[url].ts = Date.now();
-      fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
-    }
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8') || '{}');
+    cache[cacheKey] = { count: realCount, ts: Date.now() };
+    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
   } catch {}
 
   const { dir: localDir, label: localLabel } = detectSkillsDirLocal(dest);

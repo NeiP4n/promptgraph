@@ -262,6 +262,15 @@ async function countRepoSkills(repoUrl) {
   } catch { return null; }
 }
 
+// Count real .md files on disk for an installed bundle (always correct)
+function localSkillCount(repoUrl) {
+  const repoName = repoUrl.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace('/', '-');
+  const dest = path.join(SKILLS_STORE_DIR, 'github', repoName);
+  if (!fs.existsSync(dest)) return null;
+  const files = globSync(`${dest}/**/*.md`);
+  return files.length;
+}
+
 export async function browseBundles(topK = 20) {
   try {
     const text = await fetchText(REGISTRY_URL);
@@ -273,20 +282,33 @@ export async function browseBundles(topK = 20) {
 
     await Promise.all(bundles.map(async b => {
       if (!b.repo_url) return;
+
+      // 1. If installed locally — count real files on disk (always correct)
+      const local = localSkillCount(b.repo_url);
+      if (local !== null) {
+        if (b.skillCount !== local) {
+          b.skillCount = local;
+          cache[b.repo_url] = { count: local, ts: now };
+          changed = true;
+        }
+        return;
+      }
+
+      // 2. Not installed — use cached API count if fresh
       const cached = cache[b.repo_url];
-      // Use cached count if fresh, else fetch from API
       if (cached && (now - cached.ts) < SKILL_COUNT_TTL) {
         b.skillCount = cached.count;
+        return;
+      }
+
+      // 3. Fetch from GitHub API
+      const count = await countRepoSkills(b.repo_url);
+      if (count !== null) {
+        b.skillCount = count;
+        cache[b.repo_url] = { count, ts: now };
+        changed = true;
       } else {
-        const count = await countRepoSkills(b.repo_url);
-        if (count !== null) {
-          b.skillCount = count;
-          cache[b.repo_url] = { count, ts: now };
-          changed = true;
-        } else {
-          // API failed — use stale cache if exists, else keep registry value as fallback
-          b.skillCount = cached?.count ?? b.skillCount ?? 0;
-        }
+        b.skillCount = cached?.count ?? b.skillCount ?? 0;
       }
     }));
 
