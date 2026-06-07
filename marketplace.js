@@ -9,6 +9,7 @@ import { globSync } from 'glob';
 import { validateSkill, validateBundle } from './validator.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
 import { importFromGitHub, validateRepoSkills } from './github-import.js';
+import { isSkillFile } from './parser.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILL_COUNT_CACHE = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
@@ -248,12 +249,8 @@ export async function installSkill(query) {
   }
 }
 
-// ── filter skill files (exclude docs) ─────────────────────────────────────────
-const SKIP_DOCS = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap)/i;
-function isSkillFile(path) {
-  const name = path.split('/').pop().toLowerCase();
-  return name.endsWith('.md') && !SKIP_DOCS.test(name.replace(/\.md$/i, ''));
-}
+// ── filter skill files (exclude docs) — delegates to parser.js isSkillFile ─────
+// was: local isSkillFile(path) — removed in favor of shared parser.js version
 
 async function countRepoSkills(repoUrl) {
   try {
@@ -641,6 +638,55 @@ export async function incrementDownloads(name) {
       .run(id, pop)
   }
   return { ok: true }
+}
+
+// ── validate & prune all installed marketplace files ──────────────────────────
+
+export function validateAndPruneMarketplace() {
+  const results = { valid: [], removed: [], errors: [] };
+  if (!fs.existsSync(SKILLS_DIR)) {
+    return { ...results, message: 'No marketplace directory found.' };
+  }
+
+  const mdFiles = globSync(`${SKILLS_DIR}/**/*.md`, { absolute: true });
+  for (const fp of mdFiles) {
+    const name = path.relative(SKILLS_DIR, fp);
+    try {
+      const v = validateSkill(fp);
+      if (!v.ok) {
+        try { fs.unlinkSync(fp); results.removed.push({ file: name, errors: v.errors }); } catch (e) { results.errors.push(`Failed to remove ${name}: ${e.message}`); }
+      } else {
+        results.valid.push(name);
+      }
+    } catch (e) {
+      results.errors.push(`Error validating ${name}: ${e.message}`);
+    }
+  }
+
+  // Clean up empty dirs left behind
+  removeEmptyDirs(SKILLS_DIR);
+
+  // Also remove DB entries for deleted files
+  const db = getDb();
+  for (const row of db.prepare('SELECT id, path FROM skills WHERE source = ?').all('marketplace')) {
+    if (!fs.existsSync(row.path)) {
+      db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
+      db.prepare('DELETE FROM chunks WHERE skill_id = ?').run(row.id);
+    }
+  }
+
+  return results;
+}
+
+function removeEmptyDirs(dirPath) {
+  let entries;
+  try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(dirPath, entry.name);
+    removeEmptyDirs(fullPath);
+    try { if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath); } catch {}
+  }
 }
 
 export { VALID_TRUST_LEVELS, TRUST_LEVEL_BOOST, calcPopularity, autoPromote }

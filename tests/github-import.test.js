@@ -113,6 +113,7 @@ const SKIP_DIRS_LOCAL = new Set([
   'screenshots', 'media', 'static', 'scripts', 'ci_scripts',
   'node_modules', 'vendor', 'dist', 'build', 'tests', 'test',
   'examples', 'example', 'fixtures',
+  'src', 'cli', 'lib', 'bin',
 ]);
 
 function isDocFile(name) {
@@ -214,7 +215,7 @@ function cleanupRepoDir(dirPath) {
 }
 
 function cleanupRepoRoot(repoRoot) {
-  const SKIP_DIRS_LOCAL = new Set(['.github', 'docs', 'doc', 'assets', 'images', 'img', 'screenshots', 'media', 'static', 'scripts', 'ci_scripts', 'node_modules', 'vendor', 'dist', 'build', 'tests', 'test']);
+  const SKIP_DIRS_LOCAL = new Set(['.github', 'docs', 'doc', 'assets', 'images', 'img', 'screenshots', 'media', 'static', 'scripts', 'ci_scripts', 'node_modules', 'vendor', 'dist', 'build', 'tests', 'test', 'src', 'cli', 'lib', 'bin']);
   let removed = 0;
   const entries = fs.readdirSync(repoRoot, { withFileTypes: true });
   for (const entry of entries) {

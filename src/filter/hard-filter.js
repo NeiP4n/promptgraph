@@ -10,9 +10,11 @@ const SKIP_FILENAMES = new Set([
   'design', 'spec', 'specification', 'requirements', 'privacy', 'terms',
   'disclaimer', 'notice', 'copying', 'warranty', 'codeofconduct',
   'pull_request_template', 'issue_template', 'funding',
+  'claude', 'bugs', 'bug_report', 'bug-report', 'feature_request',
+  'feature-request',
 ]);
 
-const SKIP_FILENAME_RE = /^(_|\.)|^v?\d+[\.\-]\d+|^\d{4}[\-_]\d{2}|^readme|^license|^changelog|^contributing|^code.of.conduct|^security|^authors|^credits|^disclaimer|^notice|^copying|^warranty|^promotion|^funding/i;
+const SKIP_FILENAME_RE = /^(_|\.)|^v?\d+[\.\-]\d+|^\d{4}[\-_]\d{2}|^readme|^license|^changelog|^contributing|^code.of.conduct|^security|^authors|^credits|^disclaimer|^notice|^copying|^warranty|^promotion|^funding|^claude|^bugs?\b|^feature.?request/i;
 
 const SKIP_DIRS = new Set([
   '.github', 'docs', 'doc', 'documentation', 'examples', 'example',
@@ -21,6 +23,7 @@ const SKIP_DIRS = new Set([
   'node_modules', 'vendor', 'third_party',
   'references', 'reference', 'refs', 'cheatsheet', 'cheat-sheet',
   'cheatsheets', 'resources',
+  'src', 'cli', 'lib', 'bin',
 ]);
 
 const BADGE_RE = /!\[.*\]\(https?:\/\/(img\.shields\.io|badge\.fury|travis-ci|github\.com\/[^)]+\/badge)/i;

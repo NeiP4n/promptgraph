@@ -5,6 +5,22 @@ import os from 'os';
 import fs from 'fs';
 
 export default async function handler(args, bin) {
+  // Subcommand: validate / prune all installed marketplace files
+  if (args[0] === 'validate' || args[0] === 'prune' || args[0] === '--validate' || args[0] === '--prune') {
+    const { validateAndPruneMarketplace } = await import('../marketplace.js');
+    const result = validateAndPruneMarketplace();
+    if (result.removed.length > 0) {
+      error(`Removed ${result.removed.length} invalid files:`);
+      result.removed.forEach(r => console.log(`  ${chalk.red('✗')} ${r.file}`));
+    }
+    if (result.errors.length > 0) {
+      error(`${result.errors.length} errors:`);
+      result.errors.forEach(e => console.log(`  ${chalk.yellow('⚠')} ${e}`));
+    }
+    success(`${result.valid.length} valid files, ${result.removed.length} removed, ${result.errors.length} errors`);
+    process.exit(result.errors.length > 0 ? 1 : 0);
+  }
+
   if (!process.stdout.isTTY) {
     error('marketplace TUI requires an interactive terminal');
     process.exit(1);
@@ -62,6 +78,8 @@ export default async function handler(args, bin) {
   const { loadConfig: _lcR, saveConfig: _scR, SKILLS_STORE_DIR: _ssR } = await import('../config.js');
   const { getDb: _getDbR } = await import('../db.js');
 
+  const { validateAndPruneMarketplace } = await import('../marketplace.js');
+
   await runTUI(
     Array.isArray(skills) ? skills : [],
     bundlesWithCounts,
@@ -75,6 +93,11 @@ export default async function handler(args, bin) {
         if (r?.error) throw new Error(r.error);
         installedSet.add(item.id);
         if (item.code) installedSet.add(item.code);
+      }
+      // After every install, prune invalid files marketplace-wide
+      const pruneResult = validateAndPruneMarketplace();
+      if (pruneResult.removed.length > 0) {
+        console.log(`Pruned ${pruneResult.removed.length} invalid files from marketplace.`);
       }
     },
     installedSet,

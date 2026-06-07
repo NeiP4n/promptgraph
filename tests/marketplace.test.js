@@ -36,7 +36,7 @@ vi.mock('../db.js', () => ({
 }));
 
 // Must import AFTER mocks
-const { pruneInvalidRepos, setTrustLevel, getByTrustLevel, incrementDownloads, rateSkill } = await import('../marketplace.js');
+const { pruneInvalidRepos, validateAndPruneMarketplace, setTrustLevel, getByTrustLevel, incrementDownloads, rateSkill } = await import('../marketplace.js');
 const { loadConfig, saveConfig } = await import('../config.js');
 const { validateSkill } = await import('../validator.js');
 const { getDb } = await import('../db.js');
@@ -138,6 +138,118 @@ describe('pruneInvalidRepos', () => {
     expect(r.kept).toEqual(['user/good']);
     expect(r.removed).toHaveLength(1);
     expect(r.removed[0].repo).toBe('user/bad');
+  });
+});
+
+// ── validateAndPruneMarketplace ────────────────────────────────────────────────
+
+describe('validateAndPruneMarketplace', () => {
+  // validateAndPruneMarketplace uses SKILLS_DIR = SKILLS_STORE_DIR/marketplace
+  const SKILLS_DIR = path.join(tmp, 'skills-store', 'marketplace');
+
+  function writeSkill(dir, filename, valid = true) {
+    const skillName = filename.replace(/\.md$/i, '');
+    const body = valid ? 'x'.repeat(250) : 'no frontmatter';
+    const frontmatter = valid ? `---\nname: ${skillName}\ndescription: A valid skill with proper description\n---\n` : '';
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, filename), frontmatter + body);
+  }
+
+  it('returns early if SKILLS_DIR does not exist', () => {
+    const r = validateAndPruneMarketplace();
+    expect(r.removed).toHaveLength(0);
+    expect(r.valid).toHaveLength(0);
+    expect(r.message).toMatch(/No marketplace directory/);
+  });
+
+  it('handles empty SKILLS_DIR (no .md files)', () => {
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    const r = validateAndPruneMarketplace();
+    expect(r.removed).toHaveLength(0);
+    expect(r.valid).toHaveLength(0);
+  });
+
+  it('keeps all valid files, removes none', () => {
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    writeSkill(SKILLS_DIR, 'valid-1.md', true);
+    writeSkill(SKILLS_DIR, 'valid-2.md', true);
+
+    const r = validateAndPruneMarketplace();
+    expect(r.valid).toHaveLength(2);
+    expect(r.removed).toHaveLength(0);
+    expect(fs.existsSync(path.join(SKILLS_DIR, 'valid-1.md'))).toBe(true);
+    expect(fs.existsSync(path.join(SKILLS_DIR, 'valid-2.md'))).toBe(true);
+  });
+
+  it('removes invalid files, keeps valid ones', () => {
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    writeSkill(SKILLS_DIR, 'good.md', true);
+    writeSkill(SKILLS_DIR, 'bad.md', false);
+
+    const r = validateAndPruneMarketplace();
+    expect(r.valid).toEqual(['good.md']);
+    expect(r.removed).toHaveLength(1);
+    expect(r.removed[0].file).toBe('bad.md');
+    expect(fs.existsSync(path.join(SKILLS_DIR, 'good.md'))).toBe(true);
+    expect(fs.existsSync(path.join(SKILLS_DIR, 'bad.md'))).toBe(false);
+  });
+
+  it('removes empty directories after pruning', () => {
+    const subdir = path.join(SKILLS_DIR, 'subdir');
+    writeSkill(subdir, 'bad-skill.md', false);
+
+    // subdir contains only bad.md which will be removed
+    const r = validateAndPruneMarketplace();
+    expect(r.removed).toHaveLength(1);
+    // subdir should be gone after cleanup
+    expect(fs.existsSync(subdir)).toBe(false);
+  });
+
+  it('cleans up DB entries for deleted files', () => {
+    const mockDb = {
+      prepare: vi.fn((sql) => {
+        if (sql.includes('SELECT id, path FROM skills')) {
+          return {
+            all: vi.fn(() => [
+              { id: 'stale-entry', path: path.join(SKILLS_DIR, 'ghost.md') },
+            ]),
+          };
+        }
+        return { run: vi.fn(), all: vi.fn(() => []), get: vi.fn() };
+      }),
+    };
+    vi.mocked(getDb).mockReturnValue(mockDb);
+
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    writeSkill(SKILLS_DIR, 'valid.md', true);
+
+    validateAndPruneMarketplace();
+
+    // Should try to delete the stale entry from both skills and chunks tables
+    expect(mockDb.prepare).toHaveBeenCalledWith('DELETE FROM skills WHERE id = ?');
+    expect(mockDb.prepare).toHaveBeenCalledWith('DELETE FROM chunks WHERE skill_id = ?');
+  });
+
+  it('handles nested directory structure', () => {
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    writeSkill(path.join(SKILLS_DIR, 'a', 'b'), 'valid.md', true);
+    writeSkill(path.join(SKILLS_DIR, 'a'), 'also-valid.md', true);
+
+    const r = validateAndPruneMarketplace();
+    expect(r.valid).toHaveLength(2);
+    // all dirs should still exist
+    expect(fs.existsSync(path.join(SKILLS_DIR, 'a', 'b'))).toBe(true);
+  });
+
+  it('handles empty skill files gracefully', () => {
+    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(SKILLS_DIR, 'empty.md'), '');
+
+    const r = validateAndPruneMarketplace();
+    // empty file fails validation (too short), should be removed
+    expect(r.removed).toHaveLength(1);
+    expect(r.removed[0].file).toBe('empty.md');
+    expect(fs.existsSync(path.join(SKILLS_DIR, 'empty.md'))).toBe(false);
   });
 });
 

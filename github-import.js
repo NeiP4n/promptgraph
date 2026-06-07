@@ -6,7 +6,7 @@ import { globSync } from 'glob';
 import { indexAll, indexSource } from './indexer.js';
 import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR, MAX_DOWNLOAD_SIZE, MAX_FILE_COUNT, MAX_REPO_SIZE, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config.js';
 import { validateSkill } from './validator.js';
-import { isSkillFile } from './parser.js';
+import { isSkillFile, filterWithClassifier, parseSkillFile } from './parser.js';
 import { RateLimiter } from './src/utils/rate-limiter.js';
 
 const githubRateLimiter = new RateLimiter({ maxRequests: RATE_LIMIT_REQUESTS, windowMs: RATE_LIMIT_WINDOW_MS })
@@ -169,7 +169,7 @@ export async function validateRepoSkills(ownerRepo) {
   }
 
   // Filter out docs-like filenames (README, LICENSE, CHANGELOG, etc.)
-  const SKIP_DOCS = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap)/i;
+  const SKIP_DOCS = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap|claude|bugs?\b|feature.?request)/i;
   const mdTrimmed = mdFiles.filter(f => !SKIP_DOCS.test(f.name.replace(/\.md$/i, '')));
   const mdToValidate = mdTrimmed.length > 0 ? mdTrimmed : mdFiles;
 
@@ -238,6 +238,7 @@ const SKIP_DIRS_API = new Set([
   'node_modules', 'vendor', 'dist', 'build', '.git',
   'references', 'reference', 'refs', 'cheatsheet', 'cheat-sheet',
   'cheatsheets', 'resources',
+  'src', 'cli', 'lib', 'bin', 'scripts',
 ]);
 
 function git(args, cwd, stdio = 'inherit') {
@@ -269,13 +270,14 @@ function sparseClone(url, dest, subdir) {
 }
 
 // Shared skip patterns — module scope so both cleanup functions can access them
-const SKIP_RE = /^(readme|changelog|license|contributing|code.of.conduct|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding)/i;
+const SKIP_RE = /^(readme|changelog|license|contributing|code.of.conduct|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding|claude|bugs?\b|feature.?request)/i;
 const SKIP_DIRS_LOCAL = new Set([
   '.github', 'docs', 'doc', 'assets', 'images', 'img', 'screenshots',
   'media', 'static', 'scripts', 'ci_scripts', 'node_modules', 'vendor',
   'dist', 'build', 'tests', 'test',
   'references', 'reference', 'refs', 'cheatsheet', 'cheat-sheet',
   'cheatsheets', 'resources',
+  'src', 'cli', 'lib', 'bin',
 ]);
 
 // After full-clone root: remove files that are not skills and dirs we don't need
@@ -427,6 +429,40 @@ function detectSkillsDirLocal(repoRoot) {
   return { dir: repoRoot, label: '(root)', sparse: false };
 }
 
+// If the embedding classifier is trained, remove files classified as non-skills
+async function classifierCleanup(dest) {
+  const mdFiles = globSync(`${dest}/**/*.md`);
+  if (mdFiles.length === 0) return;
+
+  const parsed = [];
+  const fileMap = [];
+  for (const fp of mdFiles) {
+    try {
+      const raw = fs.readFileSync(fp, 'utf8');
+      if (!isSkillFile(fp, raw)) continue;
+      parsed.push(parseSkillFile(fp, '', { raw }));
+      fileMap.push(fp);
+    } catch {}
+  }
+
+  if (parsed.length === 0) return;
+
+  const filtered = await filterWithClassifier(parsed);
+  const keptPaths = new Set(filtered.map(s => s.path));
+
+  let removed = 0;
+  for (const fp of fileMap) {
+    if (!keptPaths.has(fp)) {
+      try { fs.unlinkSync(fp); removed++; } catch {}
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`Removed ${removed} files classified as non-skills`);
+    removeEmptyDirs(dest);
+  }
+}
+
 // ── main export ───────────────────────────────────────────────────────────────
 
 export async function importFromGitHub(repoUrl) {
@@ -499,6 +535,7 @@ export async function importFromGitHub(repoUrl) {
 
   // Remove doc files anywhere in the cloned tree
   cleanupRepoRoot(dest);
+  removeEmptyDirs(dest);
 
   // Validate every .md file via isSkillFile — delete low-quality files
   const allMd = globSync(`${dest}/**/*.md`);
@@ -510,9 +547,24 @@ export async function importFromGitHub(repoUrl) {
   }
   if (removedInvalid > 0) {
     console.log(`Removed ${removedInvalid} low-quality .md files (isSkillFile)`);
-    // Clean up empty dirs left behind
     removeEmptyDirs(dest);
   }
+
+  // Full validateSkill() pass — remove files that fail marketplace-level validation
+  const remainingMd = globSync(`${dest}/**/*.md`);
+  let removedFailedValidation = 0;
+  for (const fp of remainingMd) {
+    const v = validateSkill(fp);
+    if (!v.ok) {
+      try { fs.unlinkSync(fp); removedFailedValidation++; } catch {}
+    }
+  }
+  if (removedFailedValidation > 0) {
+    console.log(`Removed ${removedFailedValidation} files that failed validateSkill()`);
+    removeEmptyDirs(dest);
+  }
+
+  await classifierCleanup(dest);
 
   const { dir: localDir, label: localLabel } = detectSkillsDirLocal(dest);
   // Prefer the known skillsSubdir (from API detection or sparse patterns) as the
