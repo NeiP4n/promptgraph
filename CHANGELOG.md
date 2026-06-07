@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.6.3 (2026-06-07)
+
+### Fixes
+- **IPv6 → IPv4 fallback for Windows networks without IPv6 reachability**: Added `dns.setDefaultResultOrder('ipv4first')` at the top of `index.js` and `family: 4` to `update.js` `https.get`. Without this, `raw.githubusercontent.com` (and other hosts with AAAA records) would timeout on networks where IPv6 is unreachable, breaking `pg marketplace` and `pg update`.
+
 ## 2.6.2 (2026-06-07)
 
 ### Fixes

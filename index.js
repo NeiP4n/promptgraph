@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 // Only lightweight imports at top. Heavy modules (fastembed/ONNX, vectra,
 // better-sqlite3) are dynamically imported inside the command that needs them,
 // so fast CLI commands (help, marketplace) start instantly.

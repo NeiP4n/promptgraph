@@ -14,7 +14,7 @@ export default async function handler(args, bin) {
   try {
     latest = await new Promise((res, rej) => {
       const r = https.get('https://registry.npmjs.org/promptgraph-mcp/latest',
-        { headers: { Accept: 'application/json' }, timeout: 8000 },
+        { headers: { Accept: 'application/json' }, timeout: 8000, family: 4 },
         (resp) => {
           let d = ''; resp.setEncoding('utf8');
           resp.on('data', c => d += c);
