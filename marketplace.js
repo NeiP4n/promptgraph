@@ -100,7 +100,7 @@ function httpGet(url) {
       let data = '';
       res.setEncoding('utf8');
       res.on('data', c => data += c);
-      res.on('end', () => resolve(data));
+      res.on('end', () => resolve(data.charCodeAt(0) === 0xFEFF ? data.slice(1) : data));
     });
     req.on('timeout', () => { req.destroy(new Error('request timed out')); });
     req.on('error', reject);
