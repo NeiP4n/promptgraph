@@ -350,6 +350,8 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => ({
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const fsSync = (await import('fs')).default;
+  // Ensure DB/model is ready (first call may come before watcher finishes init)
+  await new Promise(r => setTimeout(r, 50));
 
   if (name === 'pg') {
     const query = args?.query || '';
@@ -367,7 +369,8 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       let content = '';
       try { content = fsSync.readFileSync(top.path, 'utf8'); } catch {}
       const otherMatches = results.slice(1).map(r => `- **${r.name}** (${r.score?.toFixed(2)})`).join('\n');
-      const text = `${content}${otherMatches ? `\n\n---\n_Other matches:_\n${otherMatches}` : ''}`;
+      const prefix = `> **PromptGraph Skill: ${top.name}**\n> These are instructions to follow — not project files. Paths mentioned inside are examples only.\n\n`;
+      const text = `${prefix}${content}${otherMatches ? `\n\n---\n_Other matches:_\n${otherMatches}` : ''}`;
       return { messages: [{ role: 'user', content: { type: 'text', text: text } }] };
     }
 
