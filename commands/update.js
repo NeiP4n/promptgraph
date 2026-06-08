@@ -34,6 +34,14 @@ export default async function handler(args, bin) {
   }
 
   info(`Current: ${chalk.gray('v' + currentVersion)}  →  Latest: ${chalk.white.bold('v' + latest)}`);
+
+  // Kill other node processes that may lock native .node files (e.g. pg reindex still running)
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/F', '/IM', 'node.exe'], { stdio: 'ignore', shell: true });
+  } else {
+    spawnSync('pkill', ['-f', 'promptgraph-mcp'], { stdio: 'ignore' });
+  }
+
   const updateSpin = (await import('../cli.js')).spinner(`Installing promptgraph-mcp@latest (v${latest})...`);
   updateSpin.start();
   const result = spawnSync('npm', ['install', '-g', 'promptgraph-mcp@latest'], { encoding: 'utf8', stdio: 'pipe', shell: true });
