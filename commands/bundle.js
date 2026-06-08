@@ -148,17 +148,36 @@ export default async function handler(args, bin) {
       fs.unlinkSync(tmp);
       if (result?.error) { error(result.error); process.exit(1); }
       if (result.gh_not_installed) {
-        console.log('\n' + result.instructions);
-        // Auto-open browser
+        const bodyText = 'Bundle definition:\n\n```json\n' + json + '\n```';
+
+        // Copy body to clipboard
+        let copied = false;
         try {
           if (process.platform === 'win32') {
-            spawnSync('powershell', ['-NoProfile', '-Command', `Start-Process '${result.submit_url}'`], { stdio: 'ignore' });
-          } else {
-            const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
-            spawnSync(openCmd, [result.submit_url], { stdio: 'ignore' });
+            const r = spawnSync('powershell', ['-NoProfile', '-Command', `Set-Clipboard -Value ${JSON.stringify(bodyText)}`], { stdio: 'pipe' });
+            copied = r.status === 0;
+          } else if (process.platform === 'darwin') {
+            const r = spawnSync('pbcopy', [], { input: bodyText, stdio: ['pipe','ignore','ignore'] });
+            copied = r.status === 0;
           }
-          console.log(chalk.green('\n✓ Opened in browser — just click "Submit new issue"'));
         } catch {}
+
+        // Open browser
+        try {
+          if (process.platform === 'win32') {
+            spawnSync('powershell', ['-NoProfile', '-Command', `Start-Process 'https://github.com/NeiP4n/promptgraph-registry/issues/new'`], { stdio: 'ignore' });
+          } else {
+            spawnSync(process.platform === 'darwin' ? 'open' : 'xdg-open', ['https://github.com/NeiP4n/promptgraph-registry/issues/new'], { stdio: 'ignore' });
+          }
+        } catch {}
+
+        console.log(chalk.bold('\n👉 Browser opened → github.com/NeiP4n/promptgraph-registry/issues/new'));
+        console.log('   Title: ' + chalk.cyan('Bundle: ' + name));
+        if (copied) {
+          console.log(chalk.green('✓ Description copied to clipboard — paste (Ctrl+V) into the body field, then Submit'));
+        } else {
+          console.log(chalk.yellow('\nPaste this into the body:\n') + chalk.gray(bodyText));
+        }
       } else {
         success(`Bundle proposed! Submit: ${result.submit_url}`);
       }
