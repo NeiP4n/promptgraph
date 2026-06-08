@@ -678,18 +678,23 @@ export async function importFromGitHubLight(repoUrl) {
   fs.mkdirSync(destBase, { recursive: true });
 
   const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  const prog = (msg) => process.stderr.write(`\r\x1b[K  ${msg}`);
 
   // Step 1: treeless clone — gets file tree instantly, no blob download, no API
-  const init = spawnSync('git', ['clone', '--depth=1', '--filter=blob:none', '--no-checkout', cloneUrl, destBase], { stdio: 'pipe', env: gitEnv, timeout: 60000 });
+  prog(`Cloning ${ownerRepo}...`);
+  const init = spawnSync('git', ['clone', '--depth=1', '--filter=blob:none', '--no-checkout', '--progress', cloneUrl, destBase], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
   if (init.status !== 0) {
+    process.stderr.write('\n');
     fs.rmSync(destBase, { recursive: true, force: true });
     throw new Error(`Failed to clone ${ownerRepo}: ${(init.stderr?.toString() || '').trim().slice(0, 120)}`);
   }
 
   // Step 2: detect skills subdir from local tree — zero API calls
+  prog(`Detecting skill directory...`);
   const subdir = detectSubdirFromTree(destBase);
 
   // Step 3: sparse-checkout only the skills subdir .md files
+  prog(`Setting up sparse checkout${subdir ? ` (${subdir}/)` : ''}...`);
   spawnSync('git', ['-C', destBase, 'sparse-checkout', 'init'], { stdio: 'pipe', env: gitEnv });
   if (subdir) {
     spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], { stdio: 'pipe', env: gitEnv });
@@ -698,16 +703,20 @@ export async function importFromGitHubLight(repoUrl) {
   }
 
   // Step 4: checkout to materialize only the selected files
-  const co = spawnSync('git', ['-C', destBase, 'checkout'], { stdio: 'pipe', env: gitEnv, timeout: 60000 });
+  prog(`Downloading .md files...`);
+  const co = spawnSync('git', ['-C', destBase, 'checkout'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
   if (co.status !== 0) {
+    process.stderr.write('\n');
     fs.rmSync(destBase, { recursive: true, force: true });
     throw new Error(`Checkout failed for ${ownerRepo}`);
   }
   // Force blob materialization (needed for partial clones on Windows)
-  spawnSync('git', ['-C', destBase, 'checkout', 'HEAD', '--', '.'], { stdio: 'pipe', env: gitEnv, timeout: 60000 });
+  spawnSync('git', ['-C', destBase, 'checkout', 'HEAD', '--', '.'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
+  process.stderr.write('\n');
 
   // Step 5: filter out non-skill files locally
   const allMd = globSync(`${destBase}/**/*.md`);
+  prog(`Filtering ${allMd.length} files...`);
   let removed = 0;
   for (const fp of allMd) {
     if (!isSkillFile(fp)) { try { fs.unlinkSync(fp); removed++; } catch {} }
@@ -715,6 +724,7 @@ export async function importFromGitHubLight(repoUrl) {
   if (removed > 0) removeEmptyDirs(destBase);
 
   const remaining = globSync(`${destBase}/**/*.md`);
+  prog(`Validating ${remaining.length} skill files...`);
   let removedV = 0;
   for (const fp of remaining) {
     const v = validateSkill(fp);
@@ -722,7 +732,9 @@ export async function importFromGitHubLight(repoUrl) {
   }
   if (removedV > 0) removeEmptyDirs(destBase);
 
+  prog(`Running classifier...`);
   await classifierCleanup(destBase);
+  process.stderr.write('\n');
 
   const realCount = globSync(`${destBase}/**/*.md`).length;
   const cacheKey = url.replace(/\.git$/, '');
