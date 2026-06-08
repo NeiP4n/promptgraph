@@ -66,7 +66,7 @@ export function progress(current, total, { skipped = 0, eta = '?', errors = 0 } 
     colors.muted(current + '/' + total),
     skipped > 0 ? colors.muted('skip ' + skipped) : '',
     errors > 0 ? colors.error('err ' + errors) : '',
-    eta !== '?' ? colors.muted('eta ' + formatTime(eta)) : '',
+    eta !== '?' && eta > 0 ? colors.muted('eta ' + formatTime(eta)) : eta === '?' ? colors.muted('scanning...') : '',
   ].filter(Boolean).join('  ');
 
   process.stdout.write('\r  ' + bar + '  ' + stats + '   ');
