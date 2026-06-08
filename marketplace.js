@@ -7,14 +7,15 @@ import { createRequire } from 'module';
 import { getDb } from './db.js';
 import { globSync } from 'glob';
 import { validateSkill, validateBundle } from './validator.js';
-import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR } from './config.js';
+import { loadConfig, saveConfig, PROMPTGRAPH_DIR, getSkillsStoreDir } from './config.js';
 import { importFromGitHubLight, validateRepoSkills } from './github-import.js';
 import { isSkillFile } from './parser.js';
 
 const REGISTRY_URL = 'https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json';
 const SKILL_COUNT_CACHE = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
 const DEAD_REPOS_FILE = path.join(PROMPTGRAPH_DIR, 'dead-repos.json');
-const SKILLS_DIR = path.join(SKILLS_STORE_DIR, 'marketplace');
+
+function getSkillsDir() { return path.join(getSkillsStoreDir(), 'marketplace'); }
 
 // Atomically write content to dest via tmp — cleans up on failure
 function writeSkillAtomic(dest, content) {
@@ -203,14 +204,14 @@ export async function installSkillFromUrl(url) {
   try {
     const rawUrl = githubToRaw(url) || url;
     const content = await fetchText(rawUrl);
-    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    fs.mkdirSync(getSkillsDir(), { recursive: true });
     ensureMarketplaceSource();
 
     // derive filename from URL
     const urlName = rawUrl.split('/').pop().replace(/[^a-z0-9-_.]/gi, '-');
-    const dest = path.join(SKILLS_DIR, urlName.endsWith('.md') ? urlName : urlName + '.md');
+    const dest = path.join(getSkillsDir(), urlName.endsWith('.md') ? urlName : urlName + '.md');
     const resolvedDest = path.resolve(dest);
-    if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) {
+    if (!resolvedDest.startsWith(path.resolve(getSkillsDir()))) {
       return { error: 'Path traversal blocked: destination outside marketplace directory' };
     }
     const v = writeSkillAtomic(dest, content);
@@ -248,11 +249,11 @@ export async function installSkill(query) {
     if (!skill.raw_url) return { error: `Skill "${skill.id}" has no download URL` };
     const skillId = skill.id;
 
-    fs.mkdirSync(SKILLS_DIR, { recursive: true });
+    fs.mkdirSync(getSkillsDir(), { recursive: true });
     ensureMarketplaceSource();
-    const dest = path.join(SKILLS_DIR, `${skillId}.md`);
+    const dest = path.join(getSkillsDir(), `${skillId}.md`);
     const resolvedDest = path.resolve(dest);
-    if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) {
+    if (!resolvedDest.startsWith(path.resolve(getSkillsDir()))) {
       return { error: 'Path traversal blocked: destination outside marketplace directory' };
     }
 
@@ -348,7 +349,7 @@ export async function browseBundles(topK = 20) {
 function ensureMarketplaceSource() {
   const config = loadConfig();
   if (!config.sources.find(s => s.source === 'marketplace')) {
-    config.sources.push({ dir: SKILLS_DIR, source: 'marketplace' });
+    config.sources.push({ dir: getSkillsDir(), source: 'marketplace' });
     saveConfig(config);
   }
 }
@@ -396,7 +397,7 @@ async function _execRepoInstall(bundle) {
 }
 
 async function _execSkillsInstall(bundle, validSkills) {
-  fs.mkdirSync(SKILLS_DIR, { recursive: true });
+  fs.mkdirSync(getSkillsDir(), { recursive: true });
   ensureMarketplaceSource();
   const installed = [];
   const failed = [];
@@ -407,15 +408,15 @@ async function _execSkillsInstall(bundle, validSkills) {
     try {
       if (installed.length > 0) await delay(300);
       const content = await fetchText(skill.raw_url);
-      const dest = path.join(SKILLS_DIR, `${skillId}.md`);
+      const dest = path.join(getSkillsDir(), `${skillId}.md`);
       const resolvedDest = path.resolve(dest);
-      if (!resolvedDest.startsWith(path.resolve(SKILLS_DIR))) { failed.push(skillId); continue; }
+      if (!resolvedDest.startsWith(path.resolve(getSkillsDir()))) { failed.push(skillId); continue; }
       const v = writeSkillAtomic(dest, content);
       if (!v.ok) { failed.push(skillId); continue; }
       installed.push(skillId);
     } catch { failed.push(skillId); }
   }
-  return { success: true, bundle: bundle.name, installed, failed, dir: SKILLS_DIR };
+  return { success: true, bundle: bundle.name, installed, failed, dir: getSkillsDir() };
 }
 
 export async function installBundle(bundleId) {
@@ -770,13 +771,13 @@ export async function incrementDownloads(name) {
 
 export function validateAndPruneMarketplace() {
   const results = { valid: [], removed: [], errors: [] };
-  if (!fs.existsSync(SKILLS_DIR)) {
+  if (!fs.existsSync(getSkillsDir())) {
     return { ...results, message: 'No marketplace directory found.' };
   }
 
-  const mdFiles = globSync(`${SKILLS_DIR}/**/*.md`, { absolute: true });
+  const mdFiles = globSync(`${getSkillsDir()}/**/*.md`, { absolute: true });
   for (const fp of mdFiles) {
-    const name = path.relative(SKILLS_DIR, fp);
+    const name = path.relative(getSkillsDir(), fp);
     try {
       const v = validateSkill(fp);
       if (!v.ok) {
@@ -790,7 +791,7 @@ export function validateAndPruneMarketplace() {
   }
 
   // Clean up empty dirs left behind
-  removeEmptyDirs(SKILLS_DIR);
+  removeEmptyDirs(getSkillsDir());
 
   // Also remove DB entries for deleted files
   const db = getDb();

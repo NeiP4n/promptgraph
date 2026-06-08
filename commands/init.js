@@ -1,99 +1,27 @@
 import chalk from 'chalk';
-import boxen from 'boxen';
-import { success, error, info } from '../cli.js';
-
-const PLATFORM_CONFIGS = {
-  'claude-code': {
-    label: 'Claude Code — ~/.claude/settings.json',
-    snippet: { mcpServers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } },
-  },
-  'claude-desktop': {
-    label: 'Claude Desktop — claude_desktop_config.json',
-    snippet: { mcpServers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } },
-  },
-  'opencode': {
-    label: 'OpenCode — opencode.json',
-    snippet: { mcp: { promptgraph: { type: 'local', command: ['cmd', '/c', 'npx', 'promptgraph-mcp'], enabled: true } } },
-  },
-  'cursor': {
-    label: 'Cursor — ~/.cursor/mcp.json',
-    snippet: { mcpServers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } },
-  },
-  'windsurf': {
-    label: 'Windsurf — mcp_config.json',
-    snippet: { mcpServers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } },
-  },
-  'cline': {
-    label: 'Cline — ~/.vscode/mcp.json',
-    snippet: { servers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } },
-  },
-  'codex': {
-    label: 'OpenAI Codex CLI — ~/.codex/config.json',
-    snippet: { mcpServers: { promptgraph: { command: 'npx', args: ['promptgraph-mcp'] } } },
-  },
-};
+import { success, info } from '../cli.js';
 
 export default async function handler(args, bin) {
-  const { promptConfig } = await import('../config.js');
-  const { indexAll } = await import('../indexer.js');
-  const { detectPlatforms, PLATFORMS } = await import('../platform.js');
-
-  if (!args.includes('--yes') && !args.includes('-y')) {
-    const { createInterface } = await import('readline');
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await new Promise(r => rl.question(
-      chalk.yellow('  ⚠') + chalk.gray('  First run downloads ~23 MB embedding model (BGE-Small-EN).\n  Proceed? [Y/n] '), r
-    ));
-    rl.close();
-    if (answer.trim().toLowerCase() === 'n') { info('Aborted.'); process.exit(0); }
-  }
-
-  console.log(chalk.gray('\n  Downloading embedding model (~23 MB, one-time)...\n'));
-  await promptConfig();
-  await indexAll();
-  console.log();
+  const { detectPlatforms } = await import('../platform.js');
+  const setupHandler = (await import('./setup.js')).default;
 
   const detected = detectPlatforms();
-  const detectedIds = new Set(detected.map(p => p.id));
 
-  const written = [];
-  const writeErrors = [];
-  for (const p of detected) {
-    try {
-      p.addMcp(p);
-      written.push(p.name || p.id);
-    } catch (e) {
-      writeErrors.push(`${p.id}: ${e.message}`);
-    }
+  if (detected.length === 0) {
+    info('No editor detected. Run: ' + chalk.white(`${bin} setup <platform>`));
+    info(chalk.gray('Platforms: claude-code, opencode, cursor, windsurf, cline, codex'));
+    process.exit(0);
   }
 
-  const toShow = detectedIds.size > 0
-    ? [...detectedIds]
-    : ['claude-code', 'opencode'];
-
-  for (const id of toShow) {
-    const cfg = PLATFORM_CONFIGS[id];
-    if (!cfg) continue;
-    console.log(
-      boxen(
-        chalk.white.bold(cfg.label) + '\n\n' +
-        chalk.gray(JSON.stringify(cfg.snippet, null, 2)),
-        { padding: 1, borderStyle: 'round', borderColor: '#7C3AED', dimBorder: true }
-      )
-    );
+  if (detected.length === 1) {
+    info(`Detected: ${chalk.white(detected[0].name)}`);
+    await setupHandler([args[0], detected[0].id], bin);
+    return;
   }
 
-  if (written.length > 0) {
-    console.log(chalk.green('  ✓') + chalk.gray(` Config written automatically to: ${written.join(', ')}`));
-    console.log(chalk.gray('  Restart your editor/client to activate.\n'));
-  } else {
-    console.log(chalk.gray('  Copy the snippet above into your editor config, then restart.\n'));
-    console.log(chalk.gray(`  Or run: `) + chalk.white(`${bin} setup <platform>`) + chalk.gray('  (claude-code, opencode, cursor, windsurf, cline, codex)\n'));
-  }
-
-  if (writeErrors.length > 0) {
-    for (const e of writeErrors) console.log(chalk.red('  ✗') + chalk.gray(' ' + e));
-  }
-
-  process.exit(0);
+  // Multiple editors — set up all, use first as primary skills dir
+  info(`Detected ${detected.length} editors:`);
+  for (const p of detected) info(`  ${chalk.white(p.id.padEnd(16))} ${chalk.gray(p.name)}`);
+  console.log();
+  await setupHandler([args[0], detected[0].id], bin);
 }

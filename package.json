@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "2.9.29",
+  "version": "2.9.30",
   "files": [
     "*.js",
     "commands/",

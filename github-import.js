@@ -4,7 +4,7 @@ import fs from 'fs';
 import https from 'https';
 import { globSync } from 'glob';
 import { indexAll, indexSource } from './indexer.js';
-import { loadConfig, saveConfig, PROMPTGRAPH_DIR, SKILLS_STORE_DIR, MAX_DOWNLOAD_SIZE, MAX_FILE_COUNT, MAX_REPO_SIZE, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config.js';
+import { loadConfig, saveConfig, PROMPTGRAPH_DIR, getSkillsStoreDir, MAX_DOWNLOAD_SIZE, MAX_FILE_COUNT, MAX_REPO_SIZE, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_MS } from './config.js';
 import { validateSkill } from './validator.js';
 import { isSkillFile, filterWithClassifier, parseSkillFile } from './parser.js';
 import { RateLimiter } from './src/utils/rate-limiter.js';
@@ -478,7 +478,7 @@ export async function importFromGitHub(repoUrl) {
   const url = repoUrl.startsWith('http') ? repoUrl : `https://github.com/${repoUrl}`;
   const ownerRepo = url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
   const repoName = ownerRepo.replace('/', '-');
-  const dest = path.join(SKILLS_STORE_DIR, 'github', repoName);
+  const dest = path.join(getSkillsStoreDir(), 'github', repoName);
 
   const isNew = !fs.existsSync(dest);
 
@@ -671,7 +671,7 @@ export async function importFromGitHubLight(repoUrl) {
   const url = repoUrl.startsWith('http') ? repoUrl : `https://github.com/${repoUrl}`;
   const ownerRepo = url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
   const repoName = ownerRepo.replace('/', '-');
-  const destBase = path.join(SKILLS_STORE_DIR, 'github', repoName);
+  const destBase = path.join(getSkillsStoreDir(), 'github', repoName);
   const cloneUrl = `https://github.com/${ownerRepo}.git`;
 
   if (fs.existsSync(destBase)) fs.rmSync(destBase, { recursive: true, force: true });
