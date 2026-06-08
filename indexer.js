@@ -168,6 +168,8 @@ export async function indexAll({ fast = false } = {}) {
   let classifierRemoved = 0;
   let batch = [];
   const start = Date.now();
+  let processedCount = 0;
+  let processedStart = null;
 
   // Build a path→{hash,id} map from DB for O(1) lookups
   const dbByPath = new Map();
@@ -193,7 +195,9 @@ export async function indexAll({ fast = false } = {}) {
       if (dbRow?.hash === hash) {
         skipped++; count++;
         if (count % 200 === 0) {
-          const eta = Math.round((total - count) * (Date.now() - start) / count / 1000);
+          const eta = processedCount > 0 && processedStart
+            ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000)
+            : '?';
           progress(count, total, { skipped, eta, errors });
         }
         continue;
@@ -202,6 +206,7 @@ export async function indexAll({ fast = false } = {}) {
       // 4. Only now check if it's a real skill (content already in memory)
       if (!isSkillFile(file, raw)) { skipped++; count++; continue; }
 
+      if (!processedStart) processedStart = Date.now();
       const parsed = parseSkillFile(file, source, { raw });
       batch.push({ ...parsed, hash });
 
@@ -210,8 +215,9 @@ export async function indexAll({ fast = false } = {}) {
         classifierRemoved += batch.length - filtered.length;
         await indexBatch(db, filtered, { fast });
         count += filtered.length;
+        processedCount += filtered.length;
         batch = [];
-        const eta = count > 0 ? Math.round((total - count) * (Date.now() - start) / count / 1000) : '?';
+        const eta = processedCount > 0 ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000) : '?';
         progress(count, total, { skipped, eta, errors });
         await new Promise(r => setImmediate ? setImmediate(r) : setTimeout(r, 0));
       }
