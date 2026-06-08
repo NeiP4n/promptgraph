@@ -590,7 +590,8 @@ export async function publishBundle(bundleDef) {
   try { fs.unlinkSync(tmpFile); } catch {}
 
   if (gh.no_gh) {
-    const issueUrl = `${REGISTRY_ISSUES}?title=Bundle%3A+${encodeURIComponent(def.name)}&body=${encodeURIComponent('Bundle definition:\n\n```json\n' + bundleJson + '\n```')}`;
+    const compactJson = JSON.stringify(def);
+    const issueUrl = `${REGISTRY_ISSUES}?title=Bundle%3A+${encodeURIComponent(def.name)}&body=${encodeURIComponent('Bundle definition:\n\n```json\n' + compactJson + '\n```')}`;
     const actionNote = def.repo_url ? `\n\nNote: Your repo will be validated by CI (GitHub Actions) after submission.\nRun locally: node validate-repo-action.js ${def.repo_url}` : '';
     return {
       success: true,
