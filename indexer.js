@@ -19,7 +19,7 @@ function sanitizePath(filePath) {
   return path.resolve(filePath);
 }
 
-export async function indexBatch(db, skills, { fast = false } = {}) {
+export async function indexBatch(db, skills, { fast = false, silent = false } = {}) {
   const upsertSkill = db.prepare(`
     INSERT INTO skills (id, name, description, path, source, content, hash, version, author, license, updated_at, downloads, verified)
     VALUES (@id, @name, @description, @path, @source, @content, @hash, @version, @author, @license, @updated_at, @downloads, @verified)
@@ -70,9 +70,9 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
   if (!fast && allChunks.length) {
     const texts = allChunks.map(c => c.text);
     const total = texts.length;
-    process.stdout.write('\n  ⠋ Preparing model...\n');
+    if (!silent) process.stdout.write('\n  ⠋ Preparing model...\n');
     let embedStart = null;
-    const embeddings = await embedBatch(texts, (done, tot) => {
+    const embeddings = await embedBatch(texts, silent ? null : (done, tot) => {
       if (!embedStart) {
         process.stdout.write('\x1b[1A\x1b[2K');
         embedStart = Date.now();
@@ -81,7 +81,7 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
       const eta = done > 0 ? Math.round((tot - done) * elapsed / done) : '?';
       progress(done, tot, { eta });
     });
-    progressDone();
+    if (!silent) progressDone();
     db.transaction(() => {
       for (let i = 0; i < allChunks.length; i++) {
         const { id, chunkIndex, text } = allChunks[i];
@@ -215,7 +215,7 @@ export async function indexAll({ fast = false } = {}) {
       if (batch.length >= BATCH_SIZE) {
         const filtered = await filterWithClassifier(batch);
         classifierRemoved += batch.length - filtered.length;
-        await indexBatch(db, filtered, { fast });
+        await indexBatch(db, filtered, { fast, silent: true });
         count += filtered.length;
         processedCount += filtered.length;
         batch = [];
@@ -241,7 +241,7 @@ export async function indexAll({ fast = false } = {}) {
   if (batch.length > 0) {
     const filtered = await filterWithClassifier(batch);
     classifierRemoved += batch.length - filtered.length;
-    await indexBatch(db, filtered, { fast });
+    await indexBatch(db, filtered, { fast, silent: true });
     count += filtered.length;
   }
 
