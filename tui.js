@@ -52,7 +52,7 @@ function buildItems(skills, bundles) {
   }
   // bundles
   for (const b of bundles) {
-    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills });
+    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills, created_at: b.created_at });
   }
   return items;
 }
@@ -81,7 +81,8 @@ function render(state, installedSet = new Set()) {
   const FOOTER_ROWS = 3;
   const LIST_ROWS = rows - HEADER_ROWS - FOOTER_ROWS;
   const NAME_W = Math.max(20, Math.floor(cols * 0.28));
-  const DESC_W = cols - NAME_W - 28;
+  const DATE_W = 8;
+  const DESC_W = cols - NAME_W - 28 - DATE_W;
 
   const { items, cursor, scroll, query, searching, tab, status } = state;
   const skills  = items.filter(i => i.type === 'skill').length;
@@ -163,8 +164,9 @@ function render(state, installedSet = new Set()) {
           : dim(((item.skills?.length || 0) + ' sk').padEnd(8))
       : chalk.hex('#A78BFA')((item.code || '').padEnd(10));
     const desc = dim(truncate(item.description, Math.max(10, DESC_W)));
+    const dateStr = item.created_at ? dim(item.created_at.slice(0, 7)) : '       ';
 
-    write(bg + `  ${arrow} ${type} ${badge} ${nameCol}  ${extra}  ${desc}` + reset + CLEAR_EOL + '\n');
+    write(bg + `  ${arrow} ${type} ${badge} ${nameCol}  ${extra}  ${desc}  ${dateStr}` + reset + CLEAR_EOL + '\n');
     rendered++;
   }
 
