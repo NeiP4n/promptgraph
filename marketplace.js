@@ -384,7 +384,10 @@ async function _execRepoInstall(bundle) {
   try {
     await importFromGitHubLight(bundle.repo_url);
   } catch (e) {
-    if (e.message && e.message.includes('No valid skills')) markDeadRepo(bundle.repo_url);
+    // Only mark dead on confirmed 404 — not on validation failures or network errors
+    if (e.message && (e.message.includes('HTTP 404') || e.message.includes('not found'))) {
+      markDeadRepo(bundle.repo_url);
+    }
     throw e;
   }
   const real = localSkillCount(bundle.repo_url);
