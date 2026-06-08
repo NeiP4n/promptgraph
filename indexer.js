@@ -197,7 +197,7 @@ export async function indexAll({ fast = false } = {}) {
         if (count % 200 === 0) {
           const eta = processedCount > 0 && processedStart
             ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000)
-            : '?';
+            : Math.round((total - count) * (Date.now() - start) / count / 1000);
           progress(count, total, { skipped, eta, errors });
         }
         continue;
