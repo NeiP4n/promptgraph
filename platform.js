@@ -26,11 +26,12 @@ function addClineMcp(configPath) {
   writeJson(configPath, json);
 }
 
-// OpenCode uses mcp.promptgraph with type/command/enabled
+// OpenCode uses plugin array
 function addOpenCodeMcp(configPath) {
   const json = readJson(configPath) || {};
-  json.mcp = json.mcp || {};
-  json.mcp.promptgraph = OC_ENTRY;
+  json.plugin = json.plugin || [];
+  const entry = 'promptgraph-mcp/plugin';
+  if (!json.plugin.includes(entry)) json.plugin.push(entry);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeJson(configPath, json);
 }
@@ -79,17 +80,21 @@ export function detectPlatforms() {
       if (!p.configPath) return false;
       if (fs.existsSync(path.dirname(p.configPath))) return true;
       if (id === 'opencode') return isOpenCodeInstalled();
+      if (id === 'claude-code') return isClaudeCodeInstalled();
       return false;
     })
     .map(([id, p]) => ({ id, ...p }));
 }
 
-function isOpenCodeInstalled() {
+function isBinaryInstalled(bin) {
   try {
-    const r = spawnSync('opencode', ['--version'], { encoding: 'utf8', timeout: 3000 });
+    const r = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: 'pipe' });
     return r.status === 0;
   } catch { return false; }
 }
+
+function isOpenCodeInstalled() { return isBinaryInstalled('opencode'); }
+function isClaudeCodeInstalled() { return isBinaryInstalled('claude'); }
 
 function getOpenCodeConfig() {
   if (process.platform === 'win32') return path.join(HOME, 'AppData', 'Roaming', 'opencode', 'opencode.json');

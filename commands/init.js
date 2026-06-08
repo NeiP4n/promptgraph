@@ -1,6 +1,6 @@
-import { colors, banner, success, error, info, section, table } from '../cli.js';
 import chalk from 'chalk';
 import boxen from 'boxen';
+import { success, error, info } from '../cli.js';
 
 const PLATFORM_CONFIGS = {
   'claude-code': {
@@ -13,7 +13,7 @@ const PLATFORM_CONFIGS = {
   },
   'opencode': {
     label: 'OpenCode — opencode.json',
-    snippet: { mcp: { promptgraph: { type: 'local', command: ['npx', 'promptgraph-mcp'], enabled: true } } },
+    snippet: { plugin: ['promptgraph-mcp/plugin'] },
   },
   'cursor': {
     label: 'Cursor — ~/.cursor/mcp.json',
@@ -39,29 +39,41 @@ export default async function handler(args, bin) {
   const { detectPlatforms, PLATFORMS } = await import('../platform.js');
 
   if (!args.includes('--yes') && !args.includes('-y')) {
-    const readline = await import('readline');
-    const rl = readline.default.createInterface({ input: process.stdin, output: process.stdout });
+    const { createInterface } = await import('readline');
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
     const answer = await new Promise(r => rl.question(
       chalk.yellow('  ⚠') + chalk.gray('  First run downloads ~23 MB embedding model (BGE-Small-EN).\n  Proceed? [Y/n] '), r
     ));
     rl.close();
     if (answer.trim().toLowerCase() === 'n') { info('Aborted.'); process.exit(0); }
   }
+
   console.log(chalk.gray('\n  Downloading embedding model (~23 MB, one-time)...\n'));
-  const config = await promptConfig();
+  await promptConfig();
   await indexAll();
   console.log();
 
-  const detected = detectPlatforms().map(p => p.id);
-  const toShow = detected.length > 0 ? detected : ['claude-code', 'opencode'];
+  const detected = detectPlatforms();
+  const detectedIds = new Set(detected.map(p => p.id));
+
+  const written = [];
+  const writeErrors = [];
+  for (const p of detected) {
+    try {
+      p.addMcp(p);
+      written.push(p.name || p.id);
+    } catch (e) {
+      writeErrors.push(`${p.id}: ${e.message}`);
+    }
+  }
+
+  const toShow = detectedIds.size > 0
+    ? [...detectedIds]
+    : ['claude-code', 'opencode'];
 
   for (const id of toShow) {
     const cfg = PLATFORM_CONFIGS[id];
     if (!cfg) continue;
-    const platform = PLATFORMS[id];
-    if (platform) {
-      try { platform.addMcp(platform); } catch {}
-    }
     console.log(
       boxen(
         chalk.white.bold(cfg.label) + '\n\n' +
@@ -71,12 +83,16 @@ export default async function handler(args, bin) {
     );
   }
 
-  if (detected.length > 0) {
-    console.log(chalk.green('  ✓') + chalk.gray(' Config written automatically to detected platforms.'));
+  if (written.length > 0) {
+    console.log(chalk.green('  ✓') + chalk.gray(` Config written automatically to: ${written.join(', ')}`));
     console.log(chalk.gray('  Restart your editor/client to activate.\n'));
   } else {
     console.log(chalk.gray('  Copy the snippet above into your editor config, then restart.\n'));
-    console.log(chalk.gray('  Or run: ') + chalk.white('pg setup <platform>') + chalk.gray('  (claude-code, opencode, cursor, windsurf, cline, codex)\n'));
+    console.log(chalk.gray(`  Or run: `) + chalk.white(`${bin} setup <platform>`) + chalk.gray('  (claude-code, opencode, cursor, windsurf, cline, codex)\n'));
+  }
+
+  if (writeErrors.length > 0) {
+    for (const e of writeErrors) console.log(chalk.red('  ✗') + chalk.gray(' ' + e));
   }
 
   process.exit(0);
