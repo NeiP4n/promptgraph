@@ -211,6 +211,14 @@ export async function indexAll({ fast = false } = {}) {
       if (!isSkillFile(file, raw)) { skipped++; count++; continue; }
 
       if (!processedStart) processedStart = Date.now();
+      count++;
+      if (count % 50 === 0) {
+        const elapsed = Date.now() - start;
+        const eta = processedCount > 0 && processedStart
+          ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000)
+          : elapsed > 500 ? Math.round((total - count) * elapsed / count / 1000) : '?';
+        progress(count, total, { skipped, eta, errors });
+      }
       const parsed = parseSkillFile(file, source, { raw });
       batch.push({ ...parsed, hash });
 
@@ -220,7 +228,6 @@ export async function indexAll({ fast = false } = {}) {
         await indexBatch(db, filtered, { fast, silent: true, onEmbed: (done, tot) => {
           process.stdout.write(`\r  ⠋ Embedding ${done}/${tot} chunks...   `);
         }});
-        count += filtered.length;
         processedCount += filtered.length;
         batch = [];
         const eta = processedCount > 0 ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000) : '?';
@@ -248,7 +255,6 @@ export async function indexAll({ fast = false } = {}) {
     await indexBatch(db, filtered, { fast, silent: true, onEmbed: (done, tot) => {
       process.stdout.write(`\r  ⠋ Embedding ${done}/${tot} chunks...   `);
     }});
-    count += filtered.length;
   }
 
   progress(total, total, { skipped, errors });
