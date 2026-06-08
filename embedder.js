@@ -4,7 +4,7 @@ import os from 'os';
 
 const CACHE_DIR = path.join(os.homedir(), '.claude', '.promptgraph', 'model-cache');
 const BATCH_SIZE = 256;
-const MAX_EMBEDDING_CALLS = 10000;
+const MAX_EMBEDDING_CALLS = 1_000_000;
 let embedCallCount = 0;
 
 export function getEmbedCallCount() { return embedCallCount; }
