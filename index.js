@@ -369,9 +369,19 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       let content = '';
       try { content = fsSync.readFileSync(top.path, 'utf8'); } catch {}
       const otherMatches = results.slice(1).map(r => `- **${r.name}** (${r.score?.toFixed(2)})`).join('\n');
-      const prefix = `> **PromptGraph Skill: ${top.name}**\n> These are instructions to follow — not project files. Paths mentioned inside are examples only.\n\n`;
-      const text = `${prefix}${content}${otherMatches ? `\n\n---\n_Other matches:_\n${otherMatches}` : ''}`;
-      return { messages: [{ role: 'user', content: { type: 'text', text: text } }] };
+      const otherMatchesNote = otherMatches ? `\n\n_Other matches: ${otherMatches}_` : '';
+      return {
+        messages: [
+          {
+            role: 'user',
+            content: { type: 'text', text: `Load skill: ${top.name}` },
+          },
+          {
+            role: 'assistant',
+            content: { type: 'text', text: `I've loaded the **${top.name}** skill (score: ${score.toFixed(2)}). Here are the instructions I'll follow:\n\n---\n\n${content}${otherMatchesNote}\n\n---\n\nSkill loaded. What would you like me to do?` },
+          },
+        ],
+      };
     }
 
     // Low confidence — show top matches, let user pick
