@@ -336,12 +336,12 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => ({
   prompts: [
     {
       name: 'pg',
-      description: 'Search skills and load the best match for your task',
-      arguments: [{ name: 'query', description: 'What you want to do', required: true }],
+      description: 'Find and load the best skill for your task. Returns the full skill instructions ready to use.',
+      arguments: [{ name: 'query', description: 'Describe what you want to do (e.g. "deploy to kubernetes", "sql injection hunt")', required: true }],
     },
     {
       name: 'pg-list',
-      description: 'List all indexed skills',
+      description: 'List all indexed skills with descriptions',
       arguments: [],
     },
   ],
@@ -349,26 +349,43 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => ({
 
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  const fsSync = (await import('fs')).default;
+
   if (name === 'pg') {
     const query = args?.query || '';
     const results = await search(query, 3);
-    if (!results.length) return { messages: [{ role: 'user', content: { type: 'text', text: `No skills found for: ${query}` } }] };
+
+    if (!results.length) {
+      return { messages: [{ role: 'user', content: { type: 'text', text: `No skills found for: "${query}"\n\nTry \`/pg-list\` to see all available skills.` } }] };
+    }
+
     const top = results[0];
-    const fs = await import('fs');
-    let content = '';
-    try { content = fs.readFileSync(top.path, 'utf8'); } catch {}
+    const score = top.score ?? 0;
+
+    // High confidence (≥0.70) — load full skill content
+    if (score >= 0.70) {
+      let content = '';
+      try { content = fsSync.readFileSync(top.path, 'utf8'); } catch {}
+      const otherMatches = results.slice(1).map(r => `- **${r.name}** (${r.score?.toFixed(2)})`).join('\n');
+      const text = `${content}${otherMatches ? `\n\n---\n_Other matches:_\n${otherMatches}` : ''}`;
+      return { messages: [{ role: 'user', content: { type: 'text', text: text } }] };
+    }
+
+    // Low confidence — show top matches, let user pick
+    const list = results.map(r => `- **${r.name}** (score: ${r.score?.toFixed(2)}) — ${r.description || ''}\n  \`/pg ${r.name}\``).join('\n\n');
     return {
-      messages: [{
-        role: 'user',
-        content: { type: 'text', text: `# Skill: ${top.name} (score: ${top.score?.toFixed(2)})\n\n${content}` },
-      }],
+      messages: [{ role: 'user', content: { type: 'text', text: `Found ${results.length} possible matches for "${query}":\n\n${list}\n\nRun \`/pg <skill-name>\` to load a specific skill.` } }],
     };
   }
+
   if (name === 'pg-list') {
     const skills = await listAll();
-    const text = skills.map(s => `- **${s.name}** — ${s.description || ''}`).join('\n');
-    return { messages: [{ role: 'user', content: { type: 'text', text: text || 'No skills indexed.' } }] };
+    const text = skills.length
+      ? `## Available skills (${skills.length})\n\n` + skills.map(s => `- **${s.name}**${s.description ? ' — ' + s.description : ''}`).join('\n')
+      : 'No skills indexed. Run `pg reindex` to index your skills.';
+    return { messages: [{ role: 'user', content: { type: 'text', text: text } }] };
   }
+
   throw new Error(`Unknown prompt: ${name}`);
 });
 
