@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle', 'status', 'train']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle', 'status', 'train']);
 
 function showHelp() {
   console.log(
@@ -35,6 +35,7 @@ function showHelp() {
     ['search <query>',      'Search skills from the terminal'],
     ['import <owner/repo>', 'Import skills from GitHub'],
     ['status',              'Show installed skills, repos, and bundles'],
+    ['install <name>',      'Install a bundle by name, code, or id'],
     ['marketplace',         'Interactive TUI: browse + search + install skills & bundles'],
     ['bundle update [id]',  'Update all (or one) installed GitHub bundles'],
     ['validate <file.md>',  'Validate a skill before publishing'],
@@ -81,6 +82,7 @@ const COMMAND_MAP = {
   search:    './commands/search.js',
   bundle:    './commands/bundle.js',
   import:    './commands/import.js',
+  install:   './commands/install.js',
   setup:     './commands/setup.js',
   init:      './commands/init.js',
   update:    './commands/update.js',
