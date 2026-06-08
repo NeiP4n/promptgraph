@@ -19,7 +19,7 @@ function sanitizePath(filePath) {
   return path.resolve(filePath);
 }
 
-export async function indexBatch(db, skills, { fast = false, silent = false } = {}) {
+export async function indexBatch(db, skills, { fast = false, silent = false, onEmbed = null } = {}) {
   const upsertSkill = db.prepare(`
     INSERT INTO skills (id, name, description, path, source, content, hash, version, author, license, updated_at, downloads, verified)
     VALUES (@id, @name, @description, @path, @source, @content, @hash, @version, @author, @license, @updated_at, @downloads, @verified)
@@ -72,7 +72,9 @@ export async function indexBatch(db, skills, { fast = false, silent = false } = 
     const total = texts.length;
     if (!silent) process.stdout.write('\n  ⠋ Preparing model...\n');
     let embedStart = null;
-    const embeddings = await embedBatch(texts, silent ? null : (done, tot) => {
+    const embeddings = await embedBatch(texts, (done, tot) => {
+      if (onEmbed) { onEmbed(done, tot); return; }
+      if (silent) return;
       if (!embedStart) {
         process.stdout.write('\x1b[1A\x1b[2K');
         embedStart = Date.now();
@@ -215,7 +217,9 @@ export async function indexAll({ fast = false } = {}) {
       if (batch.length >= BATCH_SIZE) {
         const filtered = await filterWithClassifier(batch);
         classifierRemoved += batch.length - filtered.length;
-        await indexBatch(db, filtered, { fast, silent: true });
+        await indexBatch(db, filtered, { fast, silent: true, onEmbed: (done, tot) => {
+          process.stdout.write(`\r  ⠋ Embedding ${done}/${tot} chunks...   `);
+        }});
         count += filtered.length;
         processedCount += filtered.length;
         batch = [];
@@ -241,7 +245,9 @@ export async function indexAll({ fast = false } = {}) {
   if (batch.length > 0) {
     const filtered = await filterWithClassifier(batch);
     classifierRemoved += batch.length - filtered.length;
-    await indexBatch(db, filtered, { fast, silent: true });
+    await indexBatch(db, filtered, { fast, silent: true, onEmbed: (done, tot) => {
+      process.stdout.write(`\r  ⠋ Embedding ${done}/${tot} chunks...   `);
+    }});
     count += filtered.length;
   }
 
