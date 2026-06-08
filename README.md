@@ -87,9 +87,17 @@ pg setup opencode
 **Option 2 — manual.** Add to `~/.config/opencode/opencode.json`:
 ```json
 {
-  "plugin": ["promptgraph-mcp/plugin"]
+  "mcp": {
+    "promptgraph": {
+      "type": "local",
+      "command": ["cmd", "/c", "npx", "promptgraph-mcp"],
+      "enabled": true
+    }
+  }
 }
 ```
+
+> **Linux/macOS:** use `"command": ["npx", "promptgraph-mcp"]` (without `cmd /c`).
 
 ### Other clients
 

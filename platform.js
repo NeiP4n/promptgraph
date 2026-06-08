@@ -6,7 +6,9 @@ import { spawnSync } from 'child_process';
 const HOME = os.homedir();
 
 const STD_ENTRY = { command: 'npx', args: ['promptgraph-mcp'] };
-const OC_ENTRY  = { type: 'local', command: ['npx', 'promptgraph-mcp'], enabled: true };
+const OC_ENTRY  = process.platform === 'win32'
+  ? { type: 'local', command: ['cmd', '/c', 'npx', 'promptgraph-mcp'], enabled: true }
+  : { type: 'local', command: ['npx', 'promptgraph-mcp'], enabled: true };
 
 // Shared helper: write standard mcpServers entry (Claude Code, Cursor, Windsurf, Codex format)
 function addStdMcp(configPath) {
@@ -26,14 +28,15 @@ function addClineMcp(configPath) {
   writeJson(configPath, json);
 }
 
-// OpenCode uses plugin array
+// OpenCode uses mcp.promptgraph object
 function addOpenCodeMcp(configPath) {
   const json = readJson(configPath) || {};
-  json.plugin = json.plugin || [];
-  const entry = 'promptgraph-mcp/plugin';
-  if (!json.plugin.includes(entry)) json.plugin.push(entry);
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  writeJson(configPath, json);
+  json.mcp = json.mcp || {};
+  if (!json.mcp.promptgraph) {
+    json.mcp.promptgraph = OC_ENTRY;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    writeJson(configPath, json);
+  }
 }
 
 export const PLATFORMS = {
@@ -100,7 +103,7 @@ function isOpenCodeInstalled() {
 function isClaudeCodeInstalled() { return isBinaryInstalled('claude'); }
 
 function getOpenCodeConfig() {
-  if (process.platform === 'win32') return path.join(HOME, 'AppData', 'Roaming', 'opencode', 'opencode.json');
+  if (process.platform === 'win32') return path.join(HOME, '.config', 'opencode', 'opencode.json');
   if (process.platform === 'darwin') return path.join(HOME, 'Library', 'Application Support', 'opencode', 'opencode.json');
   return path.join(HOME, '.config', 'opencode', 'opencode.json');
 }

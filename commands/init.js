@@ -13,7 +13,7 @@ const PLATFORM_CONFIGS = {
   },
   'opencode': {
     label: 'OpenCode — opencode.json',
-    snippet: { plugin: ['promptgraph-mcp/plugin'] },
+    snippet: { mcp: { promptgraph: { type: 'local', command: ['cmd', '/c', 'npx', 'promptgraph-mcp'], enabled: true } } },
   },
   'cursor': {
     label: 'Cursor — ~/.cursor/mcp.json',
