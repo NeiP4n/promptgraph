@@ -1,61 +1,11 @@
 # PromptGraph
 
-**Semantic skill router and marketplace for Claude Code.**
+**Semantic skill router and marketplace for Claude Code and OpenCode.**
 
-Instead of loading every `.md` skill into your context, Claude calls `pg_search` and loads only the one skill it needs.
+Instead of loading every `.md` skill into context, Claude calls `pg_search` and loads only the skill it needs — saving 20k+ tokens per session.
 
 [![npm](https://img.shields.io/npm/v/promptgraph-mcp?color=7C3AED&label=npm)](https://www.npmjs.com/package/promptgraph-mcp)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
----
-
-## How it works
-
-```
-pg_search("refactor without breaking tests")
-  → embed query (BGE-Small-EN, 384-dim)
-  → ANN index (HNSW by default, flat fallback) — topK×4 candidates
-  → BM25 (FTS5) — topK×4 candidates
-  → hybrid merge (embedWeight × cosine + bm25Weight × BM25)
-  → term-overlap reranker (TF frequency + header-position boost)
-  → return topK skill paths + snippets
-  → Claude reads only the files it needs
-```
-
-**Index:** SQLite + Float32 BLOB embeddings + HNSW approximate nearest neighbor (configurable: `PG_VECTOR_STORE=flat` for brute-force cosine). No external vector DB, no API key, no cloud.
-
-**Reranker:** lightweight term-overlap scorer (binary overlap + TF frequency + header-position boost). Not a cross-encoder — disable via `PG_RERANKER=0`.
-
-**File watcher:** `chokidar` detects `.md` changes and reindexes automatically (MCP server mode only).
-
----
-
-## Benchmarks (measured on real hardware)
-
-| Operation | Result |
-|---|---|
-| 88 new skills indexed (first time, cold ONNX) | **49.5 s** |
-| 88 skills reindexed (unchanged, hash match) | **< 1 s** |
-| `pg reindex --fast` (3000 files, keyword only) | **~30 s** |
-| `pg reindex` full embed (3000 files) | **~30 min** |
-| Semantic search query (HNSW) | **< 50 ms** |
-| Semantic search query (flat, brute-force) | **< 200 ms** |
-| Model size (BGE-Small-EN-v1.5, one-time download) | **23 MB** |
-| Embedding dimensions | **384** |
-| Max chunks per skill | **8** (configurable: `PG_MAX_CHUNKS`) |
-| Embedding batch size | **256** |
-
-> ONNX model initialization (~2–3 min) happens once on first use and is cached in `~/.claude/.promptgraph/model-cache/`.
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `PG_VECTOR_STORE` | `hnsw` | Vector index: `hnsw` (ANN, faster at scale) or `flat` (brute-force cosine) |
-| `PG_RERANKER` | `1` | Enable term-overlap reranker after hybrid search (set `0` to disable) |
-| `PG_MAX_CHUNKS` | `8` | Max semantic chunks per skill (higher = more detail per long file, more embedding cost) |
 
 ---
 
@@ -66,10 +16,22 @@ npm install -g promptgraph-mcp@latest
 pg init
 ```
 
-`pg init` downloads the model (~23 MB, once), indexes your local skills, and prints the config snippet.
+`pg init` auto-detects your installed editor, downloads the embedding model (~23 MB, once), indexes your skills, and writes the config automatically.
 
-### Claude Code (`~/.claude/settings.json`)
+---
 
+## Setup
+
+### Claude Code
+
+**Option 1 — auto (recommended):**
+```bash
+pg init
+# or
+pg setup claude-code
+```
+
+**Option 2 — manual.** Add to `~/.claude/settings.json`:
 ```json
 {
   "mcpServers": {
@@ -81,40 +43,67 @@ pg init
 }
 ```
 
-### Claude Desktop / Cursor / Windsurf / Cline
+**Option 3 — official plugin:**
+```
+/plugin install promptgraph@claude-community
+```
 
-Same config — any MCP-compatible client works.
+### OpenCode
 
-### OpenCode (`~/.config/opencode/opencode.json`)
+**Option 1 — auto (recommended):**
+```bash
+pg init
+# or
+pg setup opencode
+```
 
+**Option 2 — manual.** Add to `~/.config/opencode/opencode.json`:
 ```json
 {
-  "mcp": {
-    "promptgraph": {
-      "type": "local",
-      "command": ["npx", "promptgraph-mcp"],
-      "enabled": true
-    }
-  }
+  "plugin": ["promptgraph-mcp/plugin"]
 }
 ```
 
-> `pg setup` auto-detects installed clients and writes config automatically.
+### Other clients
+
+| Client | Command |
+|---|---|
+| Claude Desktop | `pg setup claude-desktop` |
+| Cursor | `pg setup cursor` |
+| Windsurf | `pg setup windsurf` |
+| Cline | `pg setup cline` |
+| OpenAI Codex CLI | `pg setup codex` |
+
+---
+
+## Install skill bundles
+
+```bash
+pg install engineering-best-practices
+pg install pg-000001
+pg install "LLM Prompts"
+```
+
+Or browse interactively:
+```bash
+pg marketplace
+```
 
 ---
 
 ## CLI
 
 ```bash
-pg init                    # first-time setup
+pg init                    # first-time setup (auto-detects editor)
+pg setup <platform>        # register MCP in a specific editor
+pg install <name>          # install a bundle by name, code, or id
+pg marketplace             # browse + search + install (interactive TUI)
 pg status                  # show indexed sources, repos, installed bundles
-pg reindex                 # full reindex (semantic search, slow)
-pg reindex --fast          # keyword-only reindex (~30s, no embeddings)
+pg reindex                 # full reindex (semantic + keyword)
+pg reindex --fast          # keyword-only reindex (~30 s)
 pg search "deploy"         # search from terminal
-pg import owner/repo       # clone and index any GitHub repo of .md skills
-pg marketplace             # browse skills by category
-pg marketplace bundles     # browse curated bundles
-pg bundle install <id>     # install a bundle
+pg import owner/repo       # import any GitHub repo of .md skills
+pg bundle update           # update all installed bundles
 pg validate my-skill.md    # validate before publishing
 pg doctor                  # clean orphaned DB rows
 pg update                  # update to latest version
@@ -122,35 +111,41 @@ pg update                  # update to latest version
 
 ---
 
+## How it works
+
+```
+pg_search("refactor without breaking tests")
+  → embed query (BGE-Small-EN, 384-dim)
+  → HNSW ANN index — topK×4 candidates
+  → BM25 FTS5 — topK×4 candidates
+  → hybrid merge (cosine + BM25, adaptive weights)
+  → term-overlap reranker (TF + header-position boost)
+  → return topK skill paths + snippets
+  → Claude reads only the files it needs
+```
+
+**Index:** SQLite + Float32 BLOB embeddings + HNSW. No external vector DB, no API key, no cloud.
+
+---
+
 ## Marketplace
 
 ```bash
-pg marketplace             # 🛠 Engineering  💻 Coding  🤖 AI Tools  🔒 Security  🎨 Creative
-pg marketplace Engineering # filter by category
-pg marketplace bundles     # install whole repos as skill bundles
+pg marketplace             # 🛠 Engineering  💻 Coding  🤖 AI  🔒 Security  🎨 Creative
+pg marketplace bundles     # curated GitHub repos as skill bundles
 ```
 
-**Bundles** install an entire GitHub repo as a skill source — auto-detects `skills/`, `commands/`, `prompts/` subdirectory.
+**Bundles** clone a GitHub repo and index only the skill files — auto-detects `skills/`, `commands/`, `prompts/` subdirectory.
 
-Example:
-```bash
-pg bundle install elementalsouls-claude-bughunter   # 88 security skills from GitHub
-pg bundle install engineering-essentials            # 4 curated workflow skills
-```
-
-**Publish your skill** (auto-validated, no manual review):
-
-Open an issue on [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) with label `skill-submission`. The bot fetches, validates, commits, and closes the issue automatically.
-
-Anti-spam checks: min 200 chars, 2+ headers, code/bullets required, prompt injection detection, duplicate URL/description check, 3 submissions per user per 24h.
+**Publish your skill** — open an issue on [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) with label `skill-submission`. The bot validates, commits, and closes automatically.
 
 ---
 
 ## MCP Tools
 
-Claude uses these automatically when the MCP server is running:
+Claude uses these automatically when the server is running:
 
-| Tool | What it does |
+| Tool | Description |
 |---|---|
 | `pg_search` | Semantic search by task description |
 | `pg_list` | List all indexed skills |
@@ -167,38 +162,46 @@ Claude uses these automatically when the MCP server is running:
 
 ---
 
-## Search modes
+## Environment Variables
 
-Search runs a multi-stage pipeline:
-
-1. **ANN retrieval** — HNSW approximate nearest neighbor (default) or flat brute-force cosine (`PG_VECTOR_STORE=flat`)
-2. **BM25 keyword** — SQLite FTS5
-3. **Hybrid fusion** — weighted sum (embedding × embedWeight + BM25 × bm25Weight, adaptive per query)
-4. **Reranker** — term-overlap rescoring with TF frequency and header-position boost (disable via `PG_RERANKER=0`)
-5. **Rating boost** — success/fail history adjusts final ranking
-
-Falls back to FTS5 only if no embeddings exist.
+| Variable | Default | Description |
+|---|---|---|
+| `PG_VECTOR_STORE` | `hnsw` | `hnsw` (ANN) or `flat` (brute-force cosine) |
+| `PG_RERANKER` | `1` | Term-overlap reranker — set `0` to disable |
+| `PG_MAX_CHUNKS` | `8` | Max semantic chunks per skill file |
 
 ---
 
 ## Skill filtering
 
 When importing a GitHub repo, PromptGraph:
-1. Looks for a dedicated subdir (`skills/`, `commands/`, `prompts/`, `agents/`, `templates/`, etc.) — indexes only that dir if found with 2+ `.md` files
-2. Falls back to repo root with content quality filter: min 150 chars, 2+ headers, must have code blocks or bullet points, skips readme/changelog/license/docs
+1. Looks for a dedicated subdir (`skills/`, `commands/`, `prompts/`, `agents/`, etc.) — indexes only that if found
+2. Falls back to repo root with a content quality filter: min 150 chars, 2+ headers, code blocks or bullets required, skips readme/changelog/license
+
+---
+
+## Benchmarks
+
+| Operation | Result |
+|---|---|
+| 88 new skills (cold ONNX) | **49.5 s** |
+| 88 skills (unchanged, hash match) | **< 1 s** |
+| `pg reindex --fast` (3000 files) | **~30 s** |
+| Semantic search (HNSW) | **< 50 ms** |
+| Model size (BGE-Small-EN-v1.5, one-time) | **23 MB** |
 
 ---
 
 ## Requirements
 
 - Node.js 18+
-- Any MCP-compatible client (Claude Code, Claude Desktop, Cline, OpenCode, Cursor, Windsurf…)
+- Claude Code, OpenCode, Cursor, Windsurf, Cline, or any MCP-compatible client
 
 ---
 
 ## Related
 
-- 📋 [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) — community skill registry and auto-publish bot
+- 📋 [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) — community skill registry
 
 ---
 
