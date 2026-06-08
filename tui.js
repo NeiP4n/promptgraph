@@ -154,9 +154,10 @@ function render(state, installedSet = new Set()) {
     const nameStr = truncate(item.name, NAME_W);
     const namePad = nameStr.padEnd(NAME_W);
     const nameCol = selected ? white.bold(namePad) : white(namePad);
+    const installed = installedSet.has(item.id) || installedSet.has(item.code);
     const extra = item.type === 'bundle'
       ? item.skillCount
-        ? blue((item.skillCount + ' sk').padEnd(8))
+        ? blue(((installed ? '' : '~') + item.skillCount + ' sk').padEnd(8))
         : item.repo_url
           ? chalk.hex('#3B82F6')('↗ GitHub')
           : dim(((item.skills?.length || 0) + ' sk').padEnd(8))
