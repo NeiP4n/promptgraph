@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', 'bundle', 'status', 'train']);
+const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train']);
 
 function showHelp() {
   console.log(
@@ -54,6 +54,14 @@ function showHelp() {
 // Explicit help request always shows help.
 if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
   showHelp();
+  process.exit(0);
+}
+
+// Version flag
+if (args[0] === '--version' || args[0] === '-v' || args[0] === 'version') {
+  const { createRequire } = await import('module');
+  const _pkg = createRequire(import.meta.url)('./package.json');
+  console.log(_pkg.version);
   process.exit(0);
 }
 

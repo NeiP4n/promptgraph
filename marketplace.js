@@ -359,9 +359,21 @@ async function _findBundle(bundleId) {
   const text = await fetchText(REGISTRY_URL);
   const registry = JSON.parse(text);
   const q = String(bundleId).trim().toLowerCase();
+  const valid = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok);
   const validSkills = (registry.skills || []).filter(s => validateRegistryEntry(s).ok);
-  const bundle = (registry.bundles || []).filter(b => validateRegistryEntry(b).ok).find(b =>
-    (b.code || codeFor(b.id)).toLowerCase() === q || b.id?.toLowerCase() === q || b.name?.toLowerCase() === q
+  // 1. Exact match (code, id, name)
+  let bundle = valid.find(b =>
+    (b.code || codeFor(b.id)).toLowerCase() === q ||
+    b.id?.toLowerCase() === q ||
+    b.name?.toLowerCase() === q
+  );
+  // 2. Partial name/id match (starts with)
+  if (!bundle) bundle = valid.find(b =>
+    b.name?.toLowerCase().startsWith(q) || b.id?.toLowerCase().startsWith(q)
+  );
+  // 3. Contains match
+  if (!bundle) bundle = valid.find(b =>
+    b.name?.toLowerCase().includes(q) || b.id?.toLowerCase().includes(q)
   );
   if (!bundle) return { error: `No bundle matching "${bundleId}"` };
   return { bundle, validSkills };
