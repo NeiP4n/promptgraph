@@ -305,29 +305,5 @@ export async function indexSource(dir, sourceName) {
   progressDone();
   const elapsed1 = ((Date.now() - start) / 1000).toFixed(1);
   success(`Indexed ${chalk.white.bold(count)} skills from ${sourceName} ${chalk.gray(`(${skipped} skipped, ${elapsed1}s)`)}`);
-  info(chalk.gray('  Semantic embeddings generating in background — keyword search available now.'));
-
-  // Pass 2: embed in background (non-blocking)
-  setImmediate(async () => {
-    try {
-      const toEmbed = [];
-      for (const file of files) {
-        try {
-          const norm = sanitizePath(file);
-          const stat = fs.statSync(norm);
-          if (stat.size > MAX_FILE_SIZE) continue;
-          const raw = fs.readFileSync(norm, 'utf8');
-          if (!isSkillFile(file, raw)) continue;
-          const hash = createHash('md5').update(raw).digest('hex');
-          const parsed = parseSkillFile(file, sourceName, { raw });
-          toEmbed.push({ ...parsed, hash });
-        } catch {}
-      }
-      if (toEmbed.length === 0) return;
-      for (let i = 0; i < toEmbed.length; i += BATCH_SIZE) {
-        await indexBatch(db, toEmbed.slice(i, i + BATCH_SIZE), { fast: false });
-      }
-      await buildAnnIndex();
-    } catch {}
-  });
+  info(chalk.gray('  Run `pg reindex` anytime to enable semantic search.'));
 }
