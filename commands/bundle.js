@@ -152,7 +152,7 @@ export default async function handler(args, bin) {
         // Auto-open browser
         try {
           if (process.platform === 'win32') {
-            spawnSync('cmd', ['/c', 'start', '', result.submit_url], { stdio: 'ignore' });
+            spawnSync('powershell', ['-NoProfile', '-Command', `Start-Process '${result.submit_url}'`], { stdio: 'ignore' });
           } else {
             const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
             spawnSync(openCmd, [result.submit_url], { stdio: 'ignore' });
