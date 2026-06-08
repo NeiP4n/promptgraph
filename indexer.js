@@ -70,13 +70,16 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
   if (!fast && allChunks.length) {
     const texts = allChunks.map(c => c.text);
     const total = texts.length;
-    const embedStart = Date.now();
-    progress(0, total);
+    const spin = spinner('Preparing model...');
+    spin.start();
+    let embedStart = null;
     const embeddings = await embedBatch(texts, (done, tot) => {
+      if (!embedStart) { spin.stop(); embedStart = Date.now(); }
       const elapsed = (Date.now() - embedStart) / 1000;
       const eta = done > 0 ? Math.round((tot - done) * elapsed / done) : '?';
       progress(done, tot, { eta });
     });
+    if (!embedStart) spin.stop();
     progressDone();
     db.transaction(() => {
       for (let i = 0; i < allChunks.length; i++) {
