@@ -149,7 +149,6 @@ export default async function handler(args, bin) {
       if (result?.error) { error(result.error); process.exit(1); }
       if (result.gh_not_installed) {
         console.log('\n' + result.instructions);
-        console.log(chalk.gray('\nBundle JSON:\n') + chalk.white(json));
       } else {
         success(`Bundle proposed! Submit: ${result.submit_url}`);
       }

@@ -596,9 +596,10 @@ export async function publishBundle(bundleDef) {
       success: true,
       gh_not_installed: true,
       instructions: [
-        '1. Install gh CLI: https://cli.github.com',
-        `   OR open this pre-filled issue directly: ${issueUrl}`,
-        '2. Paste the bundle JSON shown below into the issue body',
+        `👉 Open this link and click "Submit new issue" (JSON is already filled in):`,
+        `   ${issueUrl}`,
+        '',
+        '   OR install gh CLI for one-command submit: https://cli.github.com',
         ...(repoWarnings.length ? ['', '⚠ Repo warnings (CI will re-check):', ...repoWarnings.map(w => '   - ' + w)] : []),
         ...(def.repo_url ? ['', 'Your repo will be validated by CI when submitted.'] : []),
       ].join('\n'),
