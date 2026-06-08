@@ -88,12 +88,15 @@ export function detectPlatforms() {
 
 function isBinaryInstalled(bin) {
   try {
-    const r = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: 'pipe' });
-    return r.status === 0;
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    const r = spawnSync(cmd, [bin], { encoding: 'utf8', timeout: 3000, stdio: 'pipe' });
+    return r.status === 0 && r.stdout.trim().length > 0;
   } catch { return false; }
 }
 
-function isOpenCodeInstalled() { return isBinaryInstalled('opencode'); }
+function isOpenCodeInstalled() {
+  return isBinaryInstalled('opencode') || isBinaryInstalled('OpenCode');
+}
 function isClaudeCodeInstalled() { return isBinaryInstalled('claude'); }
 
 function getOpenCodeConfig() {
