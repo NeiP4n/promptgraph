@@ -735,19 +735,19 @@ export async function importFromGitHubLight(repoUrl) {
   process.stderr.write('\n');
 
   const realCount = globSync(`${destBase}/**/*.md`).length;
-  const cacheKey = url.replace(/\.git$/, '');
-  const cachePath = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
-  try {
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8') || '{}');
-    cache[cacheKey] = { count: realCount, ts: Date.now() };
-    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2));
-  } catch {}
 
   if (realCount < 1) {
     fs.rmSync(destBase, { recursive: true, force: true });
     throw new Error('No valid skills in repo — all files were filtered out');
   }
+
+  // Update both caches with the real post-filter count
+  try {
+    const { setCachedCount } = await import('./bundle-counts.js');
+    const cacheKey = url.replace(/\.git$/, '').replace(/^https?:\/\/github\.com\//, '');
+    setCachedCount(cacheKey, realCount);
+    setCachedCount(url.replace(/\.git$/, ''), realCount);
+  } catch {}
 
   const { dir: localDir, label: localLabel } = detectSkillsDirLocal(destBase);
   const skillsDir = subdir ? path.join(destBase, subdir) : localDir;

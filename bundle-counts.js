@@ -75,6 +75,15 @@ async function countSubdirMdFiles(ownerRepo) {
   }).length;
 }
 
+// Write a known real count (e.g. after install) — skips API, sets TTL to 24h
+export function setCachedCount(repoUrl, count) {
+  try {
+    const cache = loadCache();
+    cache[repoUrl] = { count, ts: Date.now() };
+    saveCache(cache);
+  } catch {}
+}
+
 // Read cached count for a bundle (returns null if stale or missing)
 export function getCachedCount(repoUrl) {
   const cache = loadCache();
