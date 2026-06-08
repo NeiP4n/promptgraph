@@ -61,6 +61,17 @@ export default async function handler(args, bin) {
       console.log(chalk.green(`${changedMd} files changed`) + chalk.gray(` (${before.slice(0,7)} → ${after.slice(0,7)})`));
 
       await indexSource(src.dir, src.source);
+
+      // Update cached skill count with real post-filter count
+      try {
+        const { globSync: _glob } = await import('glob');
+        const { setCachedCount } = await import('../bundle-counts.js');
+        const realCount = _glob(`${src.dir}/**/*.md`).length;
+        const repoUrl = repoName.replace('-', '/');
+        setCachedCount(repoUrl, realCount);
+        setCachedCount(`https://github.com/${repoUrl}`, realCount);
+      } catch {}
+
       updated++;
     }
 
