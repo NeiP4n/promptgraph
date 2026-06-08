@@ -253,9 +253,13 @@ function sparseClone(url, dest, subdir) {
   if (git(['init'], dest, 'pipe').status !== 0) return false;
   if (git(['remote', 'add', 'origin', url], dest, 'pipe').status !== 0) return false;
 
-  // 2. sparse-checkout — non-cone mode with *.md glob
+  // 2. sparse-checkout — non-cone mode with *.md + script files
   git(['sparse-checkout', 'init'], dest, 'pipe');
-  git(['sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], dest, 'pipe');
+  git(['sparse-checkout', 'set', '--no-cone',
+    `${subdir}/*.md`, `${subdir}/**/*.md`,
+    `${subdir}/**/*.py`, `${subdir}/**/*.sh`, `${subdir}/**/*.js`,
+    `${subdir}/**/*.ts`, `${subdir}/**/*.rb`, `${subdir}/**/*.bash`,
+  ], dest, 'pipe');
 
   // 3. fetch + checkout (depth=1, skip large blobs)
   const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
@@ -363,7 +367,11 @@ function sparseUpdate(dest, subdir) {
   const fetch = git(['fetch', '--depth=1', 'origin'], dest);
   if (fetch.status !== 0) return false;
 
-  git(['sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], dest, 'pipe');
+  git(['sparse-checkout', 'set', '--no-cone',
+    `${subdir}/*.md`, `${subdir}/**/*.md`,
+    `${subdir}/**/*.py`, `${subdir}/**/*.sh`, `${subdir}/**/*.js`,
+    `${subdir}/**/*.ts`, `${subdir}/**/*.rb`, `${subdir}/**/*.bash`,
+  ], dest, 'pipe');
 
   for (const ref of ['origin/main', 'origin/master']) {
     const r = git(['checkout', ref], dest, 'pipe');
@@ -376,7 +384,17 @@ function sparseUpdate(dest, subdir) {
 
 // After checkout, force materialization of sparse-matched files.
 function finalizeCheckout(dest, success) {
-  if (success) forceMaterialize(dest);
+  if (success) {
+    forceMaterialize(dest);
+    // Make scripts executable on unix
+    if (process.platform !== 'win32') {
+      const scriptExts = ['.py', '.sh', '.bash', '.rb'];
+      try {
+        const scripts = globSync(`${dest}/**/*{${scriptExts.join(',')}}`, { absolute: true });
+        for (const s of scripts) { try { fs.chmodSync(s, 0o755); } catch {} }
+      } catch {}
+    }
+  }
   return success;
 }
 
@@ -396,7 +414,10 @@ function fullClone(url, dest) {
   if (git(['init'], dest, 'pipe').status !== 0) return false;
   if (git(['remote', 'add', 'origin', url], dest, 'pipe').status !== 0) return false;
   git(['sparse-checkout', 'init'], dest, 'pipe');
-  git(['sparse-checkout', 'set', '--no-cone', '*.md', '**/*.md'], dest, 'pipe');
+  git(['sparse-checkout', 'set', '--no-cone',
+    '*.md', '**/*.md',
+    '**/*.py', '**/*.sh', '**/*.js', '**/*.ts', '**/*.rb', '**/*.bash',
+  ], dest, 'pipe');
   const fetch = git(['fetch', '--depth=1', '--filter=blob:none', 'origin'], dest);
   if (fetch.status !== 0) return false;
   for (const branch of ['FETCH_HEAD', 'main', 'master']) {
