@@ -5,7 +5,9 @@
     "*.js",
     "commands/",
     "src/",
-    "README.md"
+    "README.md",
+    ".claude-plugin/",
+    ".mcp.json"
   ],
   "main": "index.js",
   "type": "module",

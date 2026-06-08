@@ -1,0 +1,8 @@
+{
+  "name": "promptgraph",
+  "description": "Semantic skill router for Claude Code — search and load only the skills you need, saving 20k+ tokens per session. Includes a marketplace with 40+ community skill bundles.",
+  "author": {
+    "name": "NeiP4n"
+  },
+  "homepage": "https://github.com/NeiP4n/promptgraph"
+}

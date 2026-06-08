@@ -1,0 +1,6 @@
+{
+  "promptgraph": {
+    "command": "npx",
+    "args": ["-y", "promptgraph-mcp"]
+  }
+}
