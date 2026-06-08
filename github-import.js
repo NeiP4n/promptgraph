@@ -643,15 +643,23 @@ function detectSubdirFromTree(repoRoot) {
     }
   }
 
+  // No known skill dir found — check if repo root has .md files itself
+  const rootMdCount = entries.filter(e => e.endsWith('.md')).length;
+  if (rootMdCount >= 2) return null; // root has skills — take everything
+
+  // Otherwise check subdirs: if most non-skip subdirs have .md files, take root (all dirs)
   const skipSet = new Set([...SKIP_DIRS_API]);
   const candidates = entries.filter(e => !skipSet.has(e.toLowerCase()) && !e.includes('.'));
+  let dirsWithMd = 0;
   let best = null, bestCount = 0;
   for (const dir of candidates) {
-    const sub = spawnSync('git', ['-C', repoRoot, 'ls-tree', '--name-only', `HEAD:${dir}`], { encoding: 'utf8', stdio: 'pipe' });
+    const sub = spawnSync('git', ['-C', repoRoot, 'ls-tree', '-r', '--name-only', `HEAD:${dir}`], { encoding: 'utf8', stdio: 'pipe' });
     if (sub.status !== 0) continue;
     const mdCount = sub.stdout.split('\n').filter(f => f.endsWith('.md')).length;
-    if (mdCount >= 1 && mdCount > bestCount) { best = dir; bestCount = mdCount; }
+    if (mdCount >= 1) { dirsWithMd++; if (mdCount > bestCount) { best = dir; bestCount = mdCount; } }
   }
+  // If multiple dirs have .md files — they're all skill categories, take root
+  if (dirsWithMd > 1) return null;
   return best;
 }
 
