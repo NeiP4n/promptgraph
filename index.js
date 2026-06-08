@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['init', 'reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train']);
+const KNOWN_COMMANDS = new Set(['reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train']);
 
 function showHelp() {
   console.log(
@@ -30,7 +30,6 @@ function showHelp() {
   );
   console.log(chalk.gray('\nUsage:\n'));
   const cmds = [
-    ['init',                'First-time setup + index all skills'],
     ['reindex',             'Re-index all skills'],
     ['search <query>',      'Search skills from the terminal'],
     ['import <owner/repo>', 'Import skills from GitHub'],
@@ -92,7 +91,6 @@ const COMMAND_MAP = {
   import:    './commands/import.js',
   install:   './commands/install.js',
   setup:     './commands/setup.js',
-  init:      './commands/init.js',
   update:    './commands/update.js',
   reindex:   './commands/reindex.js',
 }

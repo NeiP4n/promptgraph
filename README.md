@@ -1,6 +1,6 @@
 # PromptGraph
 
-**Semantic skill router and marketplace for Claude Code and OpenCode.**
+**Semantic skill router and marketplace for Claude Code, OpenCode, and more.**
 
 Instead of loading every `.md` skill into context, Claude calls `pg_search` and loads only the skill it needs — saving 20k+ tokens per session.
 
@@ -9,235 +9,124 @@ Instead of loading every `.md` skill into context, Claude calls `pg_search` and 
 
 ---
 
-## Installation
-
-**Requirements:** Node.js 18+ — [nodejs.org](https://nodejs.org)
+## Install
 
 ```bash
-npm install -g promptgraph-mcp@latest
+npm install -g promptgraph-mcp
 ```
 
-Check version:
+## Quick start
+
 ```bash
-pg --version
+pg setup claude-code      # Claude Code
+pg setup opencode         # OpenCode (writes opencode.json MCP config)
+pg setup claude-desktop   # Claude Desktop
+pg setup cursor           # Cursor
 ```
 
-Update to latest:
-```bash
-pg update
-# or
-npm install -g promptgraph-mcp@latest
-```
+`pg setup <platform>` does three things:
+1. Writes the MCP server config for that platform
+2. Sets the skills directory for that platform (e.g. `~/.config/opencode/skills`)
+3. Runs a full index of your skills
 
-Uninstall:
+Then restart your editor — the `promptgraph` MCP server will be available.
+
+---
+
+## Supported platforms
+
+| Platform | Config written | Skills directory |
+|---|---|---|
+| `claude-code` | `~/.claude/settings.json` | `~/.claude/skills-store` |
+| `claude-desktop` | `%APPDATA%/Claude/claude_desktop_config.json` | `~/.claude/skills-store` |
+| `opencode` | `~/.config/opencode/opencode.json` | `~/.config/opencode/skills` |
+| `cursor` | `.cursor/mcp.json` | `~/.cursor/skills` |
+| `windsurf` | `.codeium/windsurf/mcp_config.json` | `~/.codeium/windsurf/skills` |
+| `cline` | `.vscode/mcp.json` | `~/.vscode/skills` |
+| `codex` | `~/.codex/config.yaml` | `~/.codex/skills` |
+
+---
+
+## CLI commands
+
 ```bash
-npm uninstall -g promptgraph-mcp
+pg setup <platform>     # Setup MCP config + skills dir for a platform
+pg search <query>       # Semantic search across your skills
+pg list                 # List all indexed skills
+pg add <file>           # Add a skill file and index it
+pg reindex              # Re-index all skills (with progress bar + ETA)
+pg marketplace          # Browse community skill bundles (TUI)
+pg install <id>         # Install a skill or bundle by ID
+pg doctor               # Check database integrity
+pg doctor --reset-dead  # Restore bundles hidden after install errors
+pg update               # Update promptgraph-mcp to latest version
 ```
 
 ---
 
-## Quick Start
+## OpenCode — `/pg` slash commands
 
-```bash
-npm install -g promptgraph-mcp@latest
-pg init
-```
+After `pg setup opencode`, two slash commands are available inside OpenCode:
 
-`pg init` auto-detects your installed editor, downloads the embedding model (~23 MB, once), indexes your skills, and writes the config automatically.
+- `/pg <query>` — semantic search; returns the matching skill content
+- `/pg-list` — lists all indexed skills
 
----
-
-## Setup
-
-### Claude Code
-
-**Option 1 — auto (recommended):**
-```bash
-pg init
-# or
-pg setup claude-code
-```
-
-**Option 2 — manual.** Add to `~/.claude/settings.json`:
-```json
-{
-  "mcpServers": {
-    "promptgraph": {
-      "command": "npx",
-      "args": ["promptgraph-mcp"]
-    }
-  }
-}
-```
-
-**Option 3 — official plugin:**
-```
-/plugin install promptgraph@claude-community
-```
-
-### OpenCode
-
-**Option 1 — auto (recommended):**
-```bash
-pg init
-# or
-pg setup opencode
-```
-
-**Option 2 — manual.** Add to `~/.config/opencode/opencode.json`:
-```json
-{
-  "mcp": {
-    "promptgraph": {
-      "type": "local",
-      "command": ["cmd", "/c", "npx", "promptgraph-mcp"],
-      "enabled": true
-    }
-  }
-}
-```
-
-> **Linux/macOS:** use `"command": ["npx", "promptgraph-mcp"]` (without `cmd /c`).
-
-### Other clients
-
-| Client | Command |
-|---|---|
-| Claude Desktop | `pg setup claude-desktop` |
-| Cursor | `pg setup cursor` |
-| Windsurf | `pg setup windsurf` |
-| Cline | `pg setup cline` |
-| OpenAI Codex CLI | `pg setup codex` |
-
----
-
-## Install skill bundles
-
-```bash
-pg install engineering-best-practices
-pg install pg-000001
-pg install "LLM Prompts"
-```
-
-Or browse interactively:
-```bash
-pg marketplace
-```
-
----
-
-## CLI
-
-```bash
-pg init                    # first-time setup (auto-detects editor)
-pg setup <platform>        # register MCP in a specific editor
-pg install <name>          # install a bundle by name, code, or id
-pg marketplace             # browse + search + install (interactive TUI)
-pg status                  # show indexed sources, repos, installed bundles
-pg reindex                 # full reindex (semantic + keyword)
-pg reindex --fast          # keyword-only reindex (~30 s)
-pg search "deploy"         # search from terminal
-pg import owner/repo       # import any GitHub repo of .md skills
-pg bundle update           # update all installed bundles
-pg validate my-skill.md    # validate before publishing
-pg doctor                  # clean orphaned DB rows
-pg update                  # update to latest version
-```
-
----
-
-## How it works
-
-```
-pg_search("refactor without breaking tests")
-  → embed query (BGE-Small-EN, 384-dim)
-  → HNSW ANN index — topK×4 candidates
-  → BM25 FTS5 — topK×4 candidates
-  → hybrid merge (cosine + BM25, adaptive weights)
-  → term-overlap reranker (TF + header-position boost)
-  → return topK skill paths + snippets
-  → Claude reads only the files it needs
-```
-
-**Index:** SQLite + Float32 BLOB embeddings + HNSW. No external vector DB, no API key, no cloud.
+These are MCP prompts, not tools — they appear in the `/` command palette.
 
 ---
 
 ## Marketplace
 
+Browse and install community skill bundles:
+
 ```bash
-pg marketplace             # 🛠 Engineering  💻 Coding  🤖 AI  🔒 Security  🎨 Creative
-pg marketplace bundles     # curated GitHub repos as skill bundles
+pg marketplace          # Interactive TUI browser
+pg install pg-xxxxxx    # Install by bundle ID
 ```
 
-**Bundles** clone a GitHub repo and index only the skill files — auto-detects `skills/`, `commands/`, `prompts/` subdirectory.
-
-**Publish your skill** — open an issue on [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) with label `skill-submission`. The bot validates, commits, and closes automatically.
+Bundles marked with 🔧 include tool scripts (`.py`, `.sh`, `.js`) alongside `.md` skill files. Scripts are installed to the platform's skills directory and made executable automatically.
 
 ---
 
-## MCP Tools
+## Skill bundles with tools
 
-Claude uses these automatically when the server is running:
+A bundle can ship both skill files (`.md`) and tool scripts (`.py`, `.sh`, `.js`, etc.). When installed:
+- All `.md` files go to the skills directory
+- Script files are placed alongside them
+- On Linux/macOS scripts are made executable (`chmod +x`)
 
-| Tool | Description |
-|---|---|
-| `pg_search` | Semantic search by task description |
-| `pg_list` | List all indexed skills |
-| `pg_context` | Full skill details + callers/callees |
-| `pg_callers` | Which skills reference this one |
-| `pg_callees` | Which skills this one calls |
-| `pg_impact` | What breaks if this skill changes |
-| `pg_marketplace_browse` | Browse community registry |
-| `pg_marketplace_install` | Install a skill by code or name |
-| `pg_bundle_browse` | Browse skill bundles |
-| `pg_bundle_install` | Install a bundle |
-| `pg_top_rated` | Highest-rated skills |
-| `pg_rate` | Rate a skill after use |
+Bundle authors: set `has_tools: true` and include `tool_files` entries in your bundle manifest.
 
 ---
 
-## Environment Variables
+## How it works
 
-| Variable | Default | Description |
-|---|---|---|
-| `PG_VECTOR_STORE` | `hnsw` | `hnsw` (ANN) or `flat` (brute-force cosine) |
-| `PG_RERANKER` | `1` | Term-overlap reranker — set `0` to disable |
-| `PG_MAX_CHUNKS` | `8` | Max semantic chunks per skill file |
-
----
-
-## Skill filtering
-
-When importing a GitHub repo, PromptGraph:
-1. Looks for a dedicated subdir (`skills/`, `commands/`, `prompts/`, `agents/`, etc.) — indexes only that if found
-2. Falls back to repo root with a content quality filter: min 150 chars, 2+ headers, code blocks or bullets required, skips readme/changelog/license
+1. Your `.md` skills are embedded with BGE-Small-EN (fastembed, local, no API key)
+2. Embeddings are stored in SQLite + HNSW index
+3. When Claude calls `pg_search("refactor without breaking tests")`, only the matching skill is loaded into context
+4. Skills are scored — `pg_top_rated` returns the best-performing ones
 
 ---
 
-## Benchmarks
+## Troubleshooting
 
-| Operation | Result |
-|---|---|
-| 88 new skills (cold ONNX) | **49.5 s** |
-| 88 skills (unchanged, hash match) | **< 1 s** |
-| `pg reindex --fast` (3000 files) | **~30 s** |
-| Semantic search (HNSW) | **< 50 ms** |
-| Model size (BGE-Small-EN-v1.5, one-time) | **23 MB** |
+**Marketplace shows no bundles:**
+```bash
+pg doctor --reset-dead
+```
+
+**Reindex stuck / no progress:**
+Progress bar with ETA appears automatically. First run downloads the embedding model (~45 MB).
+
+**EBUSY error on `pg update`:**
+Close any terminals running `pg` commands, then run `pg update` again.
+
+**OpenCode not seeing MCP:**
+Run `pg setup opencode` — it writes the correct `{ "type": "local", "command": ["cmd", "/c", "npx", "promptgraph-mcp"] }` entry to `~/.config/opencode/opencode.json`.
 
 ---
 
 ## Requirements
 
-- Node.js 18+
-- Claude Code, OpenCode, Cursor, Windsurf, Cline, or any MCP-compatible client
-
----
-
-## Related
-
-- 📋 [promptgraph-registry](https://github.com/NeiP4n/promptgraph-registry) — community skill registry
-
----
-
-*Built with [Claude Code](https://claude.com/claude-code).*
+- Node.js ≥ 18
+- ~45 MB disk for the embedding model (downloaded on first use)
