@@ -66,25 +66,22 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
     }
   })();
 
-  // pass 1b: embed in batches of 50 with progress bar, save each batch immediately
+  // pass 1b: embed all chunks in one call (fastembed batches internally by 256), with progress
   if (!fast && allChunks.length) {
-    const EMBED_BATCH = 50;
-    const total = allChunks.length;
-    for (let i = 0; i < total; i += EMBED_BATCH) {
-      const batch = allChunks.slice(i, i + EMBED_BATCH);
-      const texts = batch.map(c => c.text);
-      const vecs = await embedBatch(texts);
-      db.transaction(() => {
-        for (let j = 0; j < batch.length; j++) {
-          const { id, chunkIndex, text } = batch[j];
-          upsertChunk.run(id, chunkIndex, text, vecToBlob(vecs[j]));
-        }
-      })();
-      const done = Math.min(i + EMBED_BATCH, total);
-      const pct = Math.round(done / total * 100);
-      process.stdout.write(`\r  Embedding chunks... ${done}/${total} (${pct}%)   `);
-    }
+    const texts = allChunks.map(c => c.text);
+    const total = texts.length;
+    process.stdout.write(`\r  Embedding chunks... 0/${total} (0%)   `);
+    const embeddings = await embedBatch(texts, (done, tot) => {
+      const pct = Math.round(done / tot * 100);
+      process.stdout.write(`\r  Embedding chunks... ${done}/${tot} (${pct}%)   `);
+    });
     process.stdout.write('\r' + ' '.repeat(50) + '\r');
+    db.transaction(() => {
+      for (let i = 0; i < allChunks.length; i++) {
+        const { id, chunkIndex, text } = allChunks[i];
+        upsertChunk.run(id, chunkIndex, text, vecToBlob(embeddings[i]));
+      }
+    })();
   }
 
   // pass 2: resolve edges after all skills in batch are committed

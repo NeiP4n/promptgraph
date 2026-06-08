@@ -32,15 +32,18 @@ export async function embed(text) {
   return Array.from(results[0]);
 }
 
-export async function embedBatch(texts) {
+export async function embedBatch(texts, onProgress) {
   if (embedCallCount + texts.length > MAX_EMBEDDING_CALLS) {
     throw new Error(`Embedding queue limit exceeded (max ${MAX_EMBEDDING_CALLS} chunks per session). Use --fast or reindex incrementally.`);
   }
   embedCallCount += texts.length;
   const m = await getModel();
   const all = [];
+  let done = 0;
   for await (const batch of m.embed(texts)) {
     all.push(...batch);
+    done += batch.length;
+    if (onProgress) onProgress(done, texts.length);
   }
   return all.map(v => Array.from(v));
 }
