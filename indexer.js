@@ -70,12 +70,14 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
   if (!fast && allChunks.length) {
     const texts = allChunks.map(c => c.text);
     const total = texts.length;
-    process.stdout.write(`\r  Embedding chunks... 0/${total} (0%)   `);
+    const embedStart = Date.now();
+    progress(0, total);
     const embeddings = await embedBatch(texts, (done, tot) => {
-      const pct = Math.round(done / tot * 100);
-      process.stdout.write(`\r  Embedding chunks... ${done}/${tot} (${pct}%)   `);
+      const elapsed = (Date.now() - embedStart) / 1000;
+      const eta = done > 0 ? Math.round((tot - done) * elapsed / done) : '?';
+      progress(done, tot, { eta });
     });
-    process.stdout.write('\r' + ' '.repeat(50) + '\r');
+    progressDone();
     db.transaction(() => {
       for (let i = 0; i < allChunks.length; i++) {
         const { id, chunkIndex, text } = allChunks[i];
