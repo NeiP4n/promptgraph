@@ -618,9 +618,44 @@ export async function importFromGitHub(repoUrl) {
   console.log(`Done! Imported from ${repoName}/${label}`);
 }
 
-// ── light version (no git clone) ───────────────────────────────────────────────
+// ── Detect skills subdir from local git tree (no API calls) ───────────────────
 
-const SKIP_DOCS_RE = /^(readme|license|changelog|contributing|code.?of.?conduct|security|authors|credits|install|faq|index|overview|summary|todo|notes|template|copying|warranty|funding|roadmap|claude|bugs?\b|feature.?request)/i;
+function detectSubdirFromTree(repoRoot) {
+  const lsTree = spawnSync('git', ['-C', repoRoot, 'ls-tree', '--name-only', 'HEAD'], { encoding: 'utf8', stdio: 'pipe' });
+  if (lsTree.status !== 0) return null;
+  const entries = lsTree.stdout.trim().split('\n').filter(Boolean);
+  const dirMap = new Map();
+  for (const e of entries) dirMap.set(e.toLowerCase(), e);
+
+  for (const d of SKILL_DIRS) {
+    if (dirMap.has(d)) return dirMap.get(d);
+  }
+
+  for (const prefix of ['.claude', '.claude-plugin']) {
+    if (dirMap.has(prefix)) {
+      const realPrefix = dirMap.get(prefix);
+      const sub = spawnSync('git', ['-C', repoRoot, 'ls-tree', '--name-only', `HEAD:${realPrefix}`], { encoding: 'utf8', stdio: 'pipe' });
+      if (sub.status === 0) {
+        for (const d of SKILL_DIRS) {
+          if (sub.stdout.split('\n').map(s => s.toLowerCase()).includes(d)) return `${realPrefix}/${d}`;
+        }
+      }
+    }
+  }
+
+  const skipSet = new Set([...SKIP_DIRS_API]);
+  const candidates = entries.filter(e => !skipSet.has(e.toLowerCase()) && !e.includes('.'));
+  let best = null, bestCount = 0;
+  for (const dir of candidates) {
+    const sub = spawnSync('git', ['-C', repoRoot, 'ls-tree', '--name-only', `HEAD:${dir}`], { encoding: 'utf8', stdio: 'pipe' });
+    if (sub.status !== 0) continue;
+    const mdCount = sub.stdout.split('\n').filter(f => f.endsWith('.md')).length;
+    if (mdCount >= 1 && mdCount > bestCount) { best = dir; bestCount = mdCount; }
+  }
+  return best;
+}
+
+// ── light version (git sparse-checkout, no API rate limits) ───────────────────
 
 export async function importFromGitHubLight(repoUrl) {
   if (!repoUrl) throw new Error('Missing repoUrl');
@@ -629,77 +664,41 @@ export async function importFromGitHubLight(repoUrl) {
   const ownerRepo = url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
   const repoName = ownerRepo.replace('/', '-');
   const destBase = path.join(SKILLS_STORE_DIR, 'github', repoName);
-
-  const ok = await repoExists(ownerRepo);
-  if (!ok) throw new Error(`Repository not found (404): ${url}`);
-
-  const detected = await detectSkillsDirFromAPI(ownerRepo);
-  const subdir = detected?.subdir || null;
-
-  let branch = 'main';
-  try {
-    const repoJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}`);
-    branch = JSON.parse(repoJson).default_branch || 'main';
-  } catch {}
-
-  let mdFiles;
-  if (subdir) {
-    const treeJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}/git/trees/HEAD?recursive=1`);
-    const tree = JSON.parse(treeJson);
-    const prefix = subdir + '/';
-    mdFiles = (tree.tree || [])
-      .filter(f => f.type === 'blob' && f.path.startsWith(prefix) && f.path.endsWith('.md'))
-      .map(f => ({
-        relativePath: f.path.replace(prefix, ''),
-        fullPath: f.path,
-        download_url: `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${f.path}`,
-      }));
-  } else {
-    const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents`);
-    const entries = JSON.parse(json);
-    mdFiles = entries
-      .filter(e => e.type === 'file' && e.name.endsWith('.md'))
-      .map(e => ({
-        relativePath: e.name,
-        fullPath: e.name,
-        download_url: e.download_url,
-      }));
-  }
-
-  if (mdFiles.length === 0) throw new Error(`No .md files found in ${ownerRepo}`);
-
-  const beforeFilter = mdFiles.length;
-  mdFiles = mdFiles.filter(f => !SKIP_DOCS_RE.test(f.relativePath.replace(/\.md$/i, '')));
-  if (mdFiles.length === 0) throw new Error(`All ${beforeFilter} .md files filtered as docs (README, LICENSE, etc.)`);
+  const cloneUrl = `https://github.com/${ownerRepo}.git`;
 
   if (fs.existsSync(destBase)) fs.rmSync(destBase, { recursive: true, force: true });
   fs.mkdirSync(destBase, { recursive: true });
 
-  const CONCURRENT = 5;
-  let dlIdx = 0;
-  let downloaded = 0;
-  const dlErr = [];
-  async function dlWorker() {
-    while (dlIdx < mdFiles.length) {
-      const file = mdFiles[dlIdx++];
-      const destPath = path.join(destBase, file.fullPath);
-      fs.mkdirSync(path.dirname(destPath), { recursive: true });
-      try {
-        const content = await streamDownload(file.download_url);
-        fs.writeFileSync(destPath, content);
-        downloaded++;
-      } catch (e) {
-        dlErr.push(e.message?.slice(0, 80) || 'download failed');
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENT, mdFiles.length) }, () => dlWorker()));
+  const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 
-  if (downloaded === 0) {
+  // Step 1: treeless clone — gets file tree instantly, no blob download, no API
+  const init = spawnSync('git', ['clone', '--depth=1', '--filter=blob:none', '--no-checkout', cloneUrl, destBase], { stdio: 'pipe', env: gitEnv, timeout: 60000 });
+  if (init.status !== 0) {
     fs.rmSync(destBase, { recursive: true, force: true });
-    throw new Error('Failed to download any files');
+    throw new Error(`Failed to clone ${ownerRepo}: ${(init.stderr?.toString() || '').trim().slice(0, 120)}`);
   }
 
+  // Step 2: detect skills subdir from local tree — zero API calls
+  const subdir = detectSubdirFromTree(destBase);
+
+  // Step 3: sparse-checkout only the skills subdir .md files
+  spawnSync('git', ['-C', destBase, 'sparse-checkout', 'init'], { stdio: 'pipe', env: gitEnv });
+  if (subdir) {
+    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], { stdio: 'pipe', env: gitEnv });
+  } else {
+    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone', '*.md', '**/*.md'], { stdio: 'pipe', env: gitEnv });
+  }
+
+  // Step 4: checkout to materialize only the selected files
+  const co = spawnSync('git', ['-C', destBase, 'checkout'], { stdio: 'pipe', env: gitEnv, timeout: 60000 });
+  if (co.status !== 0) {
+    fs.rmSync(destBase, { recursive: true, force: true });
+    throw new Error(`Checkout failed for ${ownerRepo}`);
+  }
+  // Force blob materialization (needed for partial clones on Windows)
+  spawnSync('git', ['-C', destBase, 'checkout', 'HEAD', '--', '.'], { stdio: 'pipe', env: gitEnv, timeout: 60000 });
+
+  // Step 5: filter out non-skill files locally
   const allMd = globSync(`${destBase}/**/*.md`);
   let removed = 0;
   for (const fp of allMd) {
@@ -735,7 +734,6 @@ export async function importFromGitHubLight(repoUrl) {
   const { dir: localDir, label: localLabel } = detectSkillsDirLocal(destBase);
   const skillsDir = subdir ? path.join(destBase, subdir) : localDir;
   const label = subdir || localLabel;
-  const mdFilesInSkills = globSync(`${skillsDir}/**/*.md`);
 
   const config = loadConfig();
   const repoSource = `github:${repoName}`;
@@ -748,5 +746,5 @@ export async function importFromGitHubLight(repoUrl) {
 
   console.log();
   await indexSource(skillsDir, repoSource);
-  console.log(`Done! Imported from ${repoName}/${label} (${realCount} skills, no git clone)`);
+  console.log(`Done! Imported from ${repoName}/${label || 'root'} (${realCount} skills via git)`);
 }
