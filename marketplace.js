@@ -397,26 +397,47 @@ async function _execRepoInstall(bundle) {
 }
 
 async function _execSkillsInstall(bundle, validSkills) {
-  fs.mkdirSync(getSkillsDir(), { recursive: true });
+  const skillsDir = getSkillsDir();
+  fs.mkdirSync(skillsDir, { recursive: true });
   ensureMarketplaceSource();
   const installed = [];
   const failed = [];
+  const toolsInstalled = [];
   const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
   for (const skillId of bundle.skills || []) {
     const skill = validSkills.find(s => s.id === skillId);
     if (!skill?.raw_url) { failed.push(skillId); continue; }
     try {
       if (installed.length > 0) await delay(300);
       const content = await fetchText(skill.raw_url);
-      const dest = path.join(getSkillsDir(), `${skillId}.md`);
-      const resolvedDest = path.resolve(dest);
-      if (!resolvedDest.startsWith(path.resolve(getSkillsDir()))) { failed.push(skillId); continue; }
+      const dest = path.join(skillsDir, `${skillId}.md`);
+      if (!path.resolve(dest).startsWith(path.resolve(skillsDir))) { failed.push(skillId); continue; }
       const v = writeSkillAtomic(dest, content);
       if (!v.ok) { failed.push(skillId); continue; }
       installed.push(skillId);
     } catch { failed.push(skillId); }
   }
-  return { success: true, bundle: bundle.name, installed, failed, dir: getSkillsDir() };
+
+  // Install tool files if bundle has them (scripts, .py, .sh, .js etc)
+  for (const tool of bundle.tool_files || []) {
+    if (!tool?.raw_url || !tool?.path) continue;
+    try {
+      await delay(200);
+      const content = await fetchText(tool.raw_url);
+      const dest = path.join(skillsDir, tool.path);
+      if (!path.resolve(dest).startsWith(path.resolve(skillsDir))) continue;
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, content);
+      // Make executable on unix
+      if (process.platform !== 'win32') {
+        try { fs.chmodSync(dest, 0o755); } catch {}
+      }
+      toolsInstalled.push(tool.path);
+    } catch {}
+  }
+
+  return { success: true, bundle: bundle.name, installed, failed, toolsInstalled, dir: skillsDir, has_tools: bundle.has_tools || false };
 }
 
 export async function installBundle(bundleId) {

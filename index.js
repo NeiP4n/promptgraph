@@ -299,7 +299,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pg_marketplace_install': result = await installSkill(args.skill_id); break;
       case 'pg_marketplace_publish': result = await publishSkill(args.file_path); break;
       case 'pg_bundle_browse': result = await browseBundles(args.top_k || 20); break;
-      case 'pg_bundle_install': result = await installBundle(args.bundle_id); break;
+      case 'pg_bundle_install': {
+        result = await installBundle(args.bundle_id);
+        if (result.toolsInstalled?.length) {
+          result.message = `Installed ${result.installed?.length || 0} skills + ${result.toolsInstalled.length} tool files`;
+        }
+        break;
+      }
       case 'pg_install_url': result = await installSkillFromUrl(args.url); break;
       case 'pg_bundle_publish': result = await publishBundle(args.bundle); break;
       case 'pg_config': {

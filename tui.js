@@ -50,7 +50,7 @@ function buildItems(skills, bundles) {
     items.push({ type: 'skill', id: s.id, name: s.name || s.id, description: s.description || '', category: s.category || 'Community', tags: s.tags || [], stars: s.stars || 0, code: s.code, created_at: s.created_at || null });
   }
   for (const b of bundles) {
-    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills, created_at: b.created_at || null });
+    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills, has_tools: b.has_tools || false, created_at: b.created_at || null });
   }
   return items;
 }
@@ -162,12 +162,13 @@ function render(state, installedSet = new Set()) {
     const namePad = nameStr.padEnd(NAME_W);
     const nameCol = selected ? white.bold(namePad) : white(namePad);
     const installed = installedSet.has(item.id) || installedSet.has(item.code);
+    const toolsBadge = item.has_tools ? chalk.hex('#F59E0B')(' 🔧') : '';
     const extra = item.type === 'bundle'
       ? item.skillCount
-        ? blue(((installed ? '' : '~') + item.skillCount + ' sk').padEnd(8))
+        ? blue(((installed ? '' : '~') + item.skillCount + ' sk').padEnd(8)) + toolsBadge
         : item.repo_url
-          ? chalk.hex('#3B82F6')('↗ GitHub')
-          : dim(((item.skills?.length || 0) + ' sk').padEnd(8))
+          ? chalk.hex('#3B82F6')('↗ GitHub') + toolsBadge
+          : dim(((item.skills?.length || 0) + ' sk').padEnd(8)) + toolsBadge
       : chalk.hex('#A78BFA')((item.code || '').padEnd(10));
     const desc = dim(truncate(item.description, Math.max(10, DESC_W)));
     const dateStr = item.created_at ? dim(item.created_at.slice(0, 7)) : '       ';
