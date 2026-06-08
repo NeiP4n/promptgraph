@@ -106,7 +106,7 @@ if (COMMAND_MAP[args[0]]) {
 // ── MCP server mode (no CLI command) ──
 const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+const { CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
 const { search, getContext, getCallers, getCallees, getImpact, listAll } = await import('./search.js');
 const { loadConfig: _loadConfig, saveConfig: _saveConfig } = await import('./config.js');
 const { startWatcher } = await import('./watcher.js');
@@ -116,7 +116,7 @@ const { createRequire } = await import('module');
 const pkg = createRequire(import.meta.url)('./package.json');
 const server = new Server(
   { name: 'promptgraph', version: pkg.version },
-  { capabilities: { tools: {} } }
+  { capabilities: { tools: {}, prompts: {} } }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -330,6 +330,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (e) {
     return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
   }
+});
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: [
+    {
+      name: 'pg',
+      description: 'Search skills and load the best match for your task',
+      arguments: [{ name: 'query', description: 'What you want to do', required: true }],
+    },
+    {
+      name: 'pg-list',
+      description: 'List all indexed skills',
+      arguments: [],
+    },
+  ],
+}));
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  if (name === 'pg') {
+    const query = args?.query || '';
+    const results = await search(query, 3);
+    if (!results.length) return { messages: [{ role: 'user', content: { type: 'text', text: `No skills found for: ${query}` } }] };
+    const top = results[0];
+    const fs = await import('fs');
+    let content = '';
+    try { content = fs.readFileSync(top.path, 'utf8'); } catch {}
+    return {
+      messages: [{
+        role: 'user',
+        content: { type: 'text', text: `# Skill: ${top.name} (score: ${top.score?.toFixed(2)})\n\n${content}` },
+      }],
+    };
+  }
+  if (name === 'pg-list') {
+    const skills = await listAll();
+    const text = skills.map(s => `- **${s.name}** — ${s.description || ''}`).join('\n');
+    return { messages: [{ role: 'user', content: { type: 'text', text: text || 'No skills indexed.' } }] };
+  }
+  throw new Error(`Unknown prompt: ${name}`);
 });
 
 startWatcher();
