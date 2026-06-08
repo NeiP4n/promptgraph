@@ -1,6 +1,6 @@
 {
   "name": "promptgraph-mcp",
-  "version": "2.9.6",
+  "version": "2.9.7",
   "files": [
     "*.js",
     "commands/",
@@ -10,6 +10,10 @@
     ".mcp.json"
   ],
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./plugin": "./opencode-plugin.js"
+  },
   "type": "module",
   "bin": {
     "pg": "index.js",
