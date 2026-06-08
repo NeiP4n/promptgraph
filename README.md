@@ -9,6 +9,33 @@ Instead of loading every `.md` skill into context, Claude calls `pg_search` and 
 
 ---
 
+## Installation
+
+**Requirements:** Node.js 18+ — [nodejs.org](https://nodejs.org)
+
+```bash
+npm install -g promptgraph-mcp@latest
+```
+
+Check version:
+```bash
+pg --version
+```
+
+Update to latest:
+```bash
+pg update
+# or
+npm install -g promptgraph-mcp@latest
+```
+
+Uninstall:
+```bash
+npm uninstall -g promptgraph-mcp
+```
+
+---
+
 ## Quick Start
 
 ```bash
