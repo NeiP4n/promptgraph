@@ -46,13 +46,11 @@ function truncate(s, n) {
 
 function buildItems(skills, bundles) {
   const items = [];
-  // skills
   for (const s of skills) {
-    items.push({ type: 'skill', id: s.id, name: s.name || s.id, description: s.description || '', category: s.category || 'Community', tags: s.tags || [], stars: s.stars || 0, code: s.code });
+    items.push({ type: 'skill', id: s.id, name: s.name || s.id, description: s.description || '', category: s.category || 'Community', tags: s.tags || [], stars: s.stars || 0, code: s.code, created_at: s.created_at || null });
   }
-  // bundles
   for (const b of bundles) {
-    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills, created_at: b.created_at });
+    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills, created_at: b.created_at || null });
   }
   return items;
 }
@@ -61,6 +59,11 @@ function filterItems(items, query, tab) {
   let filtered = items;
   if (tab === 'skills')  filtered = items.filter(i => i.type === 'skill');
   if (tab === 'bundles') filtered = items.filter(i => i.type === 'bundle');
+  if (tab === 'recent') {
+    filtered = items
+      .filter(i => i.created_at)
+      .sort((a, b) => (b.created_at > a.created_at ? 1 : b.created_at < a.created_at ? -1 : 0));
+  }
   if (query) {
     const q = query.toLowerCase();
     filtered = filtered.filter(i =>
@@ -84,7 +87,7 @@ function render(state, installedSet = new Set()) {
   const DATE_W = 8;
   const DESC_W = cols - NAME_W - 28 - DATE_W;
 
-  const { items, cursor, scroll, query, searching, tab, status } = state;
+  const { items, allItems, cursor, scroll, query, searching, tab, status } = state;
   const skills  = items.filter(i => i.type === 'skill').length;
   const bundles = items.filter(i => i.type === 'bundle').length;
 
@@ -93,7 +96,7 @@ function render(state, installedSet = new Set()) {
   // ── header ─────────────────────────────────────────────────────────────────
   // Row 1: title bar
   const titleText = ' ◆ PromptGraph Marketplace';
-  const tabParts = ['all', 'skills', 'bundles'].map(t =>
+  const tabParts = ['all', 'skills', 'bundles', 'recent'].map(t =>
     t === tab
       ? `\x1b[48;2;124;58;237m\x1b[97m  ${t.toUpperCase()}  \x1b[0m`
       : dim(`  ${t}  `)
@@ -102,9 +105,12 @@ function render(state, installedSet = new Set()) {
   write(titleLine + CLEAR_EOL + '\n');
 
   // Row 2: counts
+  const recentCount = (allItems || items).filter(i => i.created_at).length;
   const countLine = dim('  ') +
-    (tab !== 'bundles' ? chalk.white(`${skills} skills`) + dim('  ') : '') +
-    (tab !== 'skills'  ? chalk.blue(`${bundles} bundles`) : '') +
+    (tab === 'recent'
+      ? chalk.yellow(`${items.length} recent`)
+      : (tab !== 'bundles' ? chalk.white(`${skills} skills`) + dim('  ') : '') +
+        (tab !== 'skills'  ? chalk.blue(`${bundles} bundles`) : '')) +
     (query ? dim('  · filter: ') + cyan(query) : '');
   write(countLine + CLEAR_EOL + '\n');
 
@@ -137,8 +143,8 @@ function render(state, installedSet = new Set()) {
     const bg    = selected ? '\x1b[48;2;55;35;110m' : '';
     const reset = '\x1b[0m';
 
-    // category header (only when ungrouped / mixed)
-    if (item.category !== lastCat) {
+    // category header (skip in recent tab — sorted by date, not category)
+    if (tab !== 'recent' && item.category !== lastCat) {
       if (rendered >= LIST_ROWS) break;
       const icon = CAT_ICON[item.category] || '📦';
       write((selected ? bg : '') + '  ' + purple.bold(icon + '  ' + item.category) + reset + CLEAR_EOL + '\n');
@@ -185,7 +191,7 @@ function render(state, installedSet = new Set()) {
     const instLabel = isInst
       ? green(' ✓ installed') + dim('  ') + dim('d') + chalk.red(' remove') + dim('  ')
       : dim(' Enter') + chalk.white(' install') + dim('  ');
-    write(instLabel + dim('Tab') + ' switch  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
+    write(instLabel + dim('Tab') + ' all/skills/bundles/recent  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
     const ghUrl = sel.repo_url ? chalk.hex('#3B82F6')(`  ↗ github.com/${sel.repo_url}`) : '';
     write(dim(` → pg ${installCmd}`) + ghUrl + CLEAR_EOL + '\n');
   } else if (state.confirming) {
@@ -250,6 +256,7 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
     cursor: 0,
     scroll: 0,
     items: allItems,
+    allItems,
     status: null,
   };
 
@@ -342,7 +349,7 @@ export async function runTUI(allSkills, allBundles, installFn, installedSet = ne
     }
 
     if (key.name === 'tab') {
-      const tabs = ['all', 'skills', 'bundles'];
+      const tabs = ['all', 'skills', 'bundles', 'recent'];
       state.tab = tabs[(tabs.indexOf(state.tab) + 1) % tabs.length];
       state.cursor = 0;
       state.scroll = 0;
