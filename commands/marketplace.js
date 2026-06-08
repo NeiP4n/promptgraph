@@ -39,9 +39,22 @@ export default async function handler(args, bin) {
 
   if (skills?.error) { error(skills.error); process.exit(1); }
 
-  const { getCachedCount, refreshCountsInBackground } = await import('../bundle-counts.js');
+  const { getCachedCount, setCachedCount, refreshCountsInBackground } = await import('../bundle-counts.js');
+  const { SKILLS_STORE_DIR } = await import('../config.js');
+  const { globSync } = await import('glob');
+  const githubDir = path.join(SKILLS_STORE_DIR, 'github');
+
+  // For each bundle: if installed on disk — use real file count; otherwise use cache
   const bundlesWithCounts = (Array.isArray(bundles) ? bundles : []).map(b => {
     if (!b.repo_url) return b;
+    const owner = b.repo_url.split('/')[0];
+    const repo  = b.repo_url.split('/')[1];
+    const clonedDir = path.join(githubDir, `${owner}-${repo}`);
+    if (fs.existsSync(clonedDir) && fs.readdirSync(clonedDir).length > 0) {
+      const realCount = globSync(`${clonedDir}/**/*.md`).length;
+      setCachedCount(b.repo_url, realCount);
+      return { ...b, skillCount: realCount };
+    }
     const cached = getCachedCount(b.repo_url);
     return cached !== null ? { ...b, skillCount: cached } : b;
   });
@@ -51,18 +64,13 @@ export default async function handler(args, bin) {
   try {
     const cfg = _lcMkt();
     const db = _getDbMkt();
-    const { SKILLS_STORE_DIR } = await import('../config.js');
-    const githubDir = path.join(SKILLS_STORE_DIR, 'github');
 
     for (const b of (Array.isArray(bundles) ? bundles : [])) {
       if (b.repo_url) {
         const owner = b.repo_url.split('/')[0];
         const repo  = b.repo_url.split('/')[1];
-        const clonedName = `${owner}-${repo}`;
-        const clonedDir  = path.join(githubDir, clonedName);
-        const dirExists  = fs.existsSync(clonedDir) &&
-          fs.readdirSync(clonedDir).length > 0;
-        if (dirExists) installedSet.add(b.id);
+        const clonedDir = path.join(githubDir, `${owner}-${repo}`);
+        if (fs.existsSync(clonedDir) && fs.readdirSync(clonedDir).length > 0) installedSet.add(b.id);
       } else if (Array.isArray(b.skills)) {
         const allOnDisk = b.skills.every(sid => {
           const row = db.prepare('SELECT path FROM skills WHERE id = ?').get(sid);
