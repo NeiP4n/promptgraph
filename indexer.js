@@ -53,15 +53,7 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
     }
   }
 
-  let embeddings = [];
-  if (!fast && allChunks.length) {
-    const texts = allChunks.map(c => c.text);
-    process.stdout.write(`  Embedding ${texts.length} chunks...`);
-    embeddings = await embedBatch(texts);
-    process.stdout.write('\r' + ' '.repeat(40) + '\r');
-  }
-
-  // pass 1: upsert all skills + chunks (no edges yet)
+  // pass 1: upsert all skills metadata first (so chunks can reference them)
   db.transaction(() => {
     for (const skill of skills) {
       const id = skillId(skill.source, skill.name);
@@ -72,13 +64,28 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
         deleteEdges.run(id);
       }
     }
-    if (!fast) {
-      for (let i = 0; i < allChunks.length; i++) {
-        const { id, chunkIndex, text } = allChunks[i];
-        upsertChunk.run(id, chunkIndex, text, vecToBlob(embeddings[i]));
-      }
-    }
   })();
+
+  // pass 1b: embed in batches of 50 with progress bar, save each batch immediately
+  if (!fast && allChunks.length) {
+    const EMBED_BATCH = 50;
+    const total = allChunks.length;
+    for (let i = 0; i < total; i += EMBED_BATCH) {
+      const batch = allChunks.slice(i, i + EMBED_BATCH);
+      const texts = batch.map(c => c.text);
+      const vecs = await embedBatch(texts);
+      db.transaction(() => {
+        for (let j = 0; j < batch.length; j++) {
+          const { id, chunkIndex, text } = batch[j];
+          upsertChunk.run(id, chunkIndex, text, vecToBlob(vecs[j]));
+        }
+      })();
+      const done = Math.min(i + EMBED_BATCH, total);
+      const pct = Math.round(done / total * 100);
+      process.stdout.write(`\r  Embedding chunks... ${done}/${total} (${pct}%)   `);
+    }
+    process.stdout.write('\r' + ' '.repeat(50) + '\r');
+  }
 
   // pass 2: resolve edges after all skills in batch are committed
   const resolveSameSource = db.prepare("SELECT id FROM skills WHERE name = ? AND source = ? LIMIT 1");
