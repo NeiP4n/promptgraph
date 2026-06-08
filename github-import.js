@@ -732,8 +732,6 @@ export async function importFromGitHubLight(repoUrl) {
   }
   if (removedV > 0) removeEmptyDirs(destBase);
 
-  prog(`Running classifier...`);
-  await classifierCleanup(destBase);
   process.stderr.write('\n');
 
   const realCount = globSync(`${destBase}/**/*.md`).length;

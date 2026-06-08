@@ -255,7 +255,7 @@ export async function indexFile(filePath, source) {
   await indexBatch(db, [{ ...skill, hash }]);
 }
 
-// Index only one source directory — much faster than indexAll after a bundle install
+// Index only one source directory — fast mode first (no embeddings), then embed in background
 export async function indexSource(dir, sourceName) {
   const db = getDb();
   const files = globSync(`${dir}/**/*.md`);
@@ -280,6 +280,7 @@ export async function indexSource(dir, sourceName) {
   let count = 0, skipped = 0, errors = 0, batch = [];
   const start = Date.now();
 
+  // Pass 1: fast — upsert skills into DB with keyword search only (instant)
   for (const file of files) {
     try {
       const norm = sanitizePath(file);
@@ -293,18 +294,40 @@ export async function indexSource(dir, sourceName) {
       const parsed = parseSkillFile(file, sourceName, { raw });
       batch.push({ ...parsed, hash });
       if (batch.length >= BATCH_SIZE) {
-        await indexBatch(db, batch);
+        await indexBatch(db, batch, { fast: true });
         count += batch.length; batch = [];
         progress(count, total, { skipped, errors });
-        await new Promise(r => setImmediate ? setImmediate(r) : setTimeout(r, 0));
       }
     } catch (e) { errors++; count++; }
   }
-
-  if (batch.length > 0) { await indexBatch(db, batch); count += batch.length; }
+  if (batch.length > 0) { await indexBatch(db, batch, { fast: true }); count += batch.length; }
   progress(total, total, { skipped, errors });
   progressDone();
-  await buildAnnIndex();
-  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  success(`Indexed ${chalk.white.bold(count)} skills from ${sourceName} ${chalk.gray(`(${skipped} skipped, ${elapsed}s)`)}`);
+  const elapsed1 = ((Date.now() - start) / 1000).toFixed(1);
+  success(`Indexed ${chalk.white.bold(count)} skills from ${sourceName} ${chalk.gray(`(${skipped} skipped, ${elapsed1}s)`)}`);
+  info(chalk.gray('  Semantic embeddings generating in background — keyword search available now.'));
+
+  // Pass 2: embed in background (non-blocking)
+  setImmediate(async () => {
+    try {
+      const toEmbed = [];
+      for (const file of files) {
+        try {
+          const norm = sanitizePath(file);
+          const stat = fs.statSync(norm);
+          if (stat.size > MAX_FILE_SIZE) continue;
+          const raw = fs.readFileSync(norm, 'utf8');
+          if (!isSkillFile(file, raw)) continue;
+          const hash = createHash('md5').update(raw).digest('hex');
+          const parsed = parseSkillFile(file, sourceName, { raw });
+          toEmbed.push({ ...parsed, hash });
+        } catch {}
+      }
+      if (toEmbed.length === 0) return;
+      for (let i = 0; i < toEmbed.length; i += BATCH_SIZE) {
+        await indexBatch(db, toEmbed.slice(i, i + BATCH_SIZE), { fast: false });
+      }
+      await buildAnnIndex();
+    } catch {}
+  });
 }
