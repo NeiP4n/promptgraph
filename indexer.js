@@ -70,16 +70,17 @@ export async function indexBatch(db, skills, { fast = false } = {}) {
   if (!fast && allChunks.length) {
     const texts = allChunks.map(c => c.text);
     const total = texts.length;
-    const spin = spinner('Preparing model...');
-    spin.start();
+    process.stdout.write('\n  ⠋ Preparing model...\n');
     let embedStart = null;
     const embeddings = await embedBatch(texts, (done, tot) => {
-      if (!embedStart) { spin.stop(); embedStart = Date.now(); }
+      if (!embedStart) {
+        process.stdout.write('\x1b[1A\x1b[2K');
+        embedStart = Date.now();
+      }
       const elapsed = (Date.now() - embedStart) / 1000;
       const eta = done > 0 ? Math.round((tot - done) * elapsed / done) : '?';
       progress(done, tot, { eta });
     });
-    if (!embedStart) spin.stop();
     progressDone();
     db.transaction(() => {
       for (let i = 0; i < allChunks.length; i++) {
@@ -195,9 +196,10 @@ export async function indexAll({ fast = false } = {}) {
       if (dbRow?.hash === hash) {
         skipped++; count++;
         if (count % 200 === 0) {
+          const elapsed = Date.now() - start;
           const eta = processedCount > 0 && processedStart
             ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000)
-            : Math.round((total - count) * (Date.now() - start) / count / 1000);
+            : elapsed > 500 ? Math.round((total - count) * elapsed / count / 1000) : '?';
           progress(count, total, { skipped, eta, errors });
         }
         continue;
