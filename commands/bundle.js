@@ -149,6 +149,12 @@ export default async function handler(args, bin) {
       if (result?.error) { error(result.error); process.exit(1); }
       if (result.gh_not_installed) {
         console.log('\n' + result.instructions);
+        // Auto-open browser
+        try {
+          const openCmd = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+          spawnSync(openCmd, [result.submit_url], { shell: true, stdio: 'ignore' });
+          console.log(chalk.green('\n✓ Opened in browser — just click "Submit new issue"'));
+        } catch {}
       } else {
         success(`Bundle proposed! Submit: ${result.submit_url}`);
       }
