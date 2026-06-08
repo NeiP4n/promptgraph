@@ -212,27 +212,24 @@ export async function indexAll({ fast = false } = {}) {
 
       if (!processedStart) processedStart = Date.now();
       count++;
-      if (count % 50 === 0) {
-        const elapsed = Date.now() - start;
-        const eta = processedCount > 0 && processedStart
-          ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000)
-          : elapsed > 500 ? Math.round((total - count) * elapsed / count / 1000) : '?';
-        progress(count, total, { skipped, eta, errors });
-      }
       const parsed = parseSkillFile(file, source, { raw });
       batch.push({ ...parsed, hash });
 
       if (batch.length >= BATCH_SIZE) {
         const filtered = await filterWithClassifier(batch);
         classifierRemoved += batch.length - filtered.length;
+        let embedMsg = '';
         await indexBatch(db, filtered, { fast, silent: true, onEmbed: (done, tot) => {
-          process.stdout.write(`\r  ⠋ Embedding ${done}/${tot} chunks...   `);
+          embedMsg = `embedding ${done}/${tot}`;
+          process.stdout.write(`\r  ⠋ ${embedMsg} chunks...   `);
         }});
         processedCount += filtered.length;
         batch = [];
         const eta = processedCount > 0 ? Math.round((total - count) * (Date.now() - processedStart) / processedCount / 1000) : '?';
         progress(count, total, { skipped, eta, errors });
         await new Promise(r => setImmediate ? setImmediate(r) : setTimeout(r, 0));
+      } else {
+        progress(count, total, { skipped, eta: '?', errors });
       }
     } catch (e) {
       errors++;
