@@ -36,8 +36,9 @@ export default async function handler(args, bin) {
   info(`Current: ${chalk.gray('v' + currentVersion)}  →  Latest: ${chalk.white.bold('v' + latest)}`);
 
   // Kill other node processes that may lock native .node files (e.g. pg reindex still running)
+  // Exclude current PID to avoid killing ourselves
   if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/F', '/IM', 'node.exe'], { stdio: 'ignore', shell: true });
+    spawnSync('wmic', ['process', 'where', `name='node.exe' and ProcessId!=${process.pid}`, 'delete'], { stdio: 'ignore', shell: true });
   } else {
     spawnSync('pkill', ['-f', 'promptgraph-mcp'], { stdio: 'ignore' });
   }
