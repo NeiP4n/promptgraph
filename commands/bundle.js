@@ -151,8 +151,12 @@ export default async function handler(args, bin) {
         console.log('\n' + result.instructions);
         // Auto-open browser
         try {
-          const openCmd = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-          spawnSync(openCmd, [result.submit_url], { shell: true, stdio: 'ignore' });
+          if (process.platform === 'win32') {
+            spawnSync('cmd', ['/c', 'start', '', result.submit_url], { stdio: 'ignore' });
+          } else {
+            const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+            spawnSync(openCmd, [result.submit_url], { stdio: 'ignore' });
+          }
           console.log(chalk.green('\n✓ Opened in browser — just click "Submit new issue"'));
         } catch {}
       } else {
