@@ -1,96 +1,56 @@
 # Changelog
 
-## 2.6.3 (2026-06-07)
-
-### Fixes
-- **IPv6 → IPv4 fallback for Windows networks without IPv6 reachability**: Added `dns.setDefaultResultOrder('ipv4first')` at the top of `index.js` and `family: 4` to `update.js` `https.get`. Without this, `raw.githubusercontent.com` (and other hosts with AAAA records) would timeout on networks where IPv6 is unreachable, breaking `pg marketplace` and `pg update`.
-
-## 2.6.2 (2026-06-07)
-
-### Fixes
-- **`index.js` import fix**: `mod.handler` → `mod.default` — `export default function handler()` does not create a named export `handler` in Node.js ESM. All CLI commands were broken with `TypeError: mod.handler is not a function`.
-
-## 2.6.1 (2026-06-07)
-
-### Fixes
-- **`package.json` `files` field fixed**: added `commands/` and `src/` (was `"*.js"` which only matches root-level .js files, causing `ERR_MODULE_NOT_FOUND` for `pg marketplace` and other command imports)
-
-### Reputation & Trust
-- **calcPopularity rewritten**: `downloads * (rating+1)` → `log10(downloads+1) × normalized_rating × 100` with 180-day half-life time decay. Downloads no longer dominate quality.
-- **Trust level now boosts search ranking**: `verified ×1.15`, `official ×1.10`, `trusted ×1.05`, `community ×1.0`, `unknown ×0.95` — applied in `applyRatingBoost()`
-- **Popularity boost in search**: top 20% of skills by popularity get +5% score bump
-- **Auto-promotion**: skills auto-graduate trust levels at 100 (`trusted`) / 1000 (`official`) / 10000 (`verified`) downloads
-- **CLI `--trust` filter**: `pg search deploy --trust=verified` — filters results by trust level
-
-### Improvements
-- **HNSW is now default vector store** — was opt-in `PG_VECTOR_STORE=hnsw`, now default. Set `PG_VECTOR_STORE=flat` for brute-force fallback
-- **MAX_CHUNKS raised 4 → 32** — long skill docs now keep much more context. Configurable via `PG_MAX_CHUNKS` env var
-- **Reranker substantially improved**: bigram/trigram overlap, IDF-weighted TF scoring, exact phrase proximity boost, header position boost. Still heuristic (not a cross-encoder), but significantly smarter
-- **Reranker candidate pool scaled**: `Math.max(50, topK × 6)` instead of hardcoded 20 — large `topK` queries no longer lose candidates
-- **README fully synced** — architecture description, benchmarks, search modes, and env var reference now match the current hybrid/ANN/reranker reality
-- **Architecture.md updated** — stale "flat by default" and "max 4 chunks" refs corrected to HNSW default and configurable chunk limit
-
-## 2.6.0 (2026-06-07)
-
-### Refactor
-- **index.js split**: monolith (913 lines) → 12 modular `commands/*.js` files
-- **Schema migrations**: ad-hoc ALTER TABLE → versioned `MIGRATIONS[]` with `_schema_version` table
-
-### Quality
-- **ESLint**: `.eslintrc` added (ESM, no-semicolons, strict equality rules)
-- **Version sync**: hardcoded `'1.0.0'` in `index.js` → reads from `package.json`
-- **spawnSync timeouts**: all git operations now have 15-60s timeouts (was: blocked Node.js on hang)
-- **bundle-counts.js**: `httpsGet` string concat O(n²) → `chunks.push()` + timeout + error handling
-- **Benchmarks**: `benchmarks/search-benchmark.js` and `benchmarks/index-benchmark.js` added
-
-## 2.5.0 (2026-06-07)
+## 2.9.43 (2026-06-10)
 
 ### Features
-- **Reranker layer**: hybrid search → top 20 → term-overlap reranker → top 5. Disable via `PG_RERANKER=0`
-- **Trust system**: `verified` / `official` / `community` / `trusted` / `unknown` levels for registry entries
-- **Reputation tracking**: `downloads`, `rating` (0-5), `popularity` per skill
-- **Safety limits**: configurable max download size (50MB), file count (50000), repo size (500MB), extension whitelist
-- **Rate limiter**: sliding window with serialized `acquire()` (TOCTOU-safe) for GitHub API and raw downloads
-- **Batch indexing**: event-loop yield between batches to prevent memory exhaustion
-- **External data isolation**: `sanitizeExternalContent()` strips null bytes, truncates oversized content, validates extensions
+- **Auto-open browser + clipboard paste**: `pg bundle add-repo` now opens GitHub issue page in browser, copies issue body to clipboard. User just pastes (Ctrl+V) and submits.
 
-### Security
-- **Rate limiter**: TOCTOU race condition fixed (promise-chain serialization)
-- **Global mutable state**: `embedWeight`/`bm25Weight` in `search.js` → local `const` (fixes concurrent mutation in MCP server)
-- **`sanitizeExternalContent`**: null-guard added (crash on `null`/`undefined`)
-- **Prototype pollution**: `Object.assign(Object.create(null), ...)` in marketplace spread operations
-- **tar CVE**: `overrides` bumped from `^6.2.1` → `^7.5.11` (6 known high-severity CVEs fixed)
-- **Redirect loop**: `streamDownload` and `httpsGet` capped at 5 redirects
-- **String concat DoS**: O(n²) `d += c` → O(n) `chunks.push(c)` + `join('')`
-- **Query term limit**: reranker capped at 50 terms to prevent CPU exhaustion
-- **Security.md**: private disclosure channel added (email + GitHub Advisories)
+### Fixes
+- **pg bundle add-repo UX**: Compact JSON in issue URL to reduce length; Windows URL handling via PowerShell Start-Process to preserve `%` characters.
+- **Bot: JSON code block parsing**: Registry bot now reads JSON from ```json...``` code blocks in issue body (format from `pg bundle publish`).
+- **Bundle issue template**: Replaced .yml form with .md template to support URL pre-fill of issue body.
 
-### Cleanup
-- **`cluster.js`**, **`dedup.js`**: removed from source (were dead code — moved to `archive/` then deleted)
-- **5 `console.error('DEBUG ...')` lines**: removed from `indexer.js` (were spamming MCP stderr)
-- **Dead code**: `setHybridWeights()` and `adaptWeights()` removed (race condition vector)
+## 2.9.42 (2026-06-10)
 
-### Bug Fixes
-- **`indexBatch` not exported**: `api.js` could not call `update()` (runtime `TypeError`)
-- **`BATCH_SIZE` from wrong module**: `api.js` imported from `embedder.js` where it doesn't exist
-- **`api.js::index()`**: `BATCH_SIZE` now correctly imported from `config.js`
+### Fixes
+- **Compact JSON in URLs**: Use minified JSON (no spaces) to reduce issue URL length for Windows terminal compatibility.
 
-### Documentation
-- `Architecture.md` — 13 layers, data flows, dependency map, 10 design decisions
-- `CONTRIBUTING.md` — setup, tests, code style, PR process, skill publishing
-- `Security.md` — 6-layer defense model, trust levels, vulnerability reporting
-- `Benchmark.md` — metrics, perf testing methodology, future work
-- `CHANGELOG.md` — this file
+## 2.9.41 (2026-06-10)
 
-### Tests
-- 14 test files, 256+ tests, all passing
-- New: `tests/reranker.test.js` (8 tests), `tests/safety-limits.test.js` (24 tests)
-- Coverage: security (validator-security), vector store, marketplace, safety limits
+### Fixes
+- **Windows URL open**: Use PowerShell `Start-Process` instead of `cmd /c start` to preserve `%` characters in encoded URLs.
 
-## 2.4.8 (2026-06-06)
+## 2.9.40 (2026-06-10)
 
-- Path traversal guards in marketplace, api, validator
-- Adaptive BM25 weights
-- HNSW persistence (save/load/fromDir)
-- Embedder queue cap (10000 calls)
-- pruneInvalidRepos fix for Windows relative paths
+### Features
+- **Auto-open browser**: `pg bundle add-repo` automatically opens GitHub in browser after detecting gh CLI is not installed.
+
+## 2.9.39 (2026-06-10)
+
+### Improvements
+- **UX clarity**: Updated `pg bundle add-repo` instructions to clarify that JSON is already pre-filled in the browser link.
+
+## 2.9.38 (2026-06-10)
+
+### Fixes
+- **pg init removal**: Deleted `pg init` command entirely (was simplified to detect platform via `setup` handler).
+- **README rewrite**: Full documentation of Quick Start, platform support table, OpenCode `/pg` slash commands, marketplace bundles with tools, troubleshooting.
+
+## 2.9.37 (2026-06-10)
+
+### Features
+- **MCP prompts for OpenCode**: Added `/pg <query>` and `/pg-list` slash commands via MCP `ListPromptsRequestSchema` and `GetPromptRequestSchema`.
+- **Platform-aware skills directories**: `pg setup <platform>` now sets platform-specific skills directory (`.claude/skills-store`, `.config/opencode/skills`, etc.).
+- **Bundle tool files support**: Bundles can include `.py`, `.sh`, `.js` scripts alongside `.md` skills. Installer downloads and makes executable on Linux/macOS.
+- **pg marketplace visibility**: Fixed `markDeadRepo` triggering on any validation error (was marking valid repos as dead). Now only on HTTP 404.
+
+### Improvements
+- **Embedding progress bar + ETA**: Added progress display during `pg reindex` with moving ETA (not frozen at 0s/1s). Separate timer tracks actual processing start time.
+- **MAX_EMBEDDING_CALLS raised**: 10,000 → 1,000,000 to support large skill reindex without queue overflow.
+- **EBUSY fix on pg update**: Use `wmic process where ... delete` instead of killing all node.exe (was killing the update process itself).
+
+---
+
+## History (< 2.9.37)
+
+See git log for earlier versions. Older releases focused on: core indexing, HNSW vector store, trust levels, reranker, and marketplace bootstrap.
