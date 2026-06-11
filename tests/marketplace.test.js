@@ -20,6 +20,7 @@ vi.mock('../config.js', () => ({
     fs.mkdirSync(path.dirname(mockConfigPath), { recursive: true });
     fs.writeFileSync(mockConfigPath, JSON.stringify(cfg, null, 2));
   }),
+  getSkillsStoreDir: vi.fn(() => path.join(tmp, 'skills-store')),
   PROMPTGRAPH_DIR: mockPromptgraphDir,
   SKILLS_STORE_DIR: path.join(tmp, 'skills-store'),
 }));
