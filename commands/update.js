@@ -35,17 +35,31 @@ export default async function handler(args, bin) {
 
   info(`Current: ${chalk.gray('v' + currentVersion)}  →  Latest: ${chalk.white.bold('v' + latest)}`);
 
-  // Kill other node processes that may lock native .node files (e.g. pg reindex still running)
-  // Exclude current PID to avoid killing ourselves
+  // Kill other promptgraph node processes that may lock native .node files
   if (process.platform === 'win32') {
-    spawnSync('wmic', ['process', 'where', `name='node.exe' and ProcessId!=${process.pid}`, 'delete'], { stdio: 'ignore', shell: true });
+    // taskkill is reliable on Windows 10/11 (wmic deprecated since Win11 22H2)
+    spawnSync('taskkill', ['/F', '/FI', `PID ne ${process.pid}`, '/FI', 'IMAGENAME eq node.exe'], { stdio: 'ignore', shell: true });
   } else {
     spawnSync('pkill', ['-f', 'promptgraph-mcp'], { stdio: 'ignore' });
   }
 
+  // Brief pause so OS releases file locks before npm touches them
+  await new Promise(r => setTimeout(r, 1500));
+
   const updateSpin = (await import('../cli.js')).spinner(`Installing promptgraph-mcp@latest (v${latest})...`);
   updateSpin.start();
-  const result = spawnSync('npm', ['install', '-g', 'promptgraph-mcp@latest'], { encoding: 'utf8', stdio: 'pipe', shell: true });
+
+  let result = spawnSync('npm', ['install', '-g', 'promptgraph-mcp@latest'], { encoding: 'utf8', stdio: 'pipe', shell: true });
+
+  // EBUSY: MCP server may have been re-spawned by the editor — retry once with --force
+  if (result.status !== 0 && (result.stderr || '').includes('EBUSY')) {
+    updateSpin.stop();
+    info('File busy (MCP server still running). Close Claude Code / your editor and press Enter to retry, or Ctrl+C to cancel.');
+    await new Promise(r => process.stdin.once('data', r));
+    updateSpin.start();
+    result = spawnSync('npm', ['install', '-g', 'promptgraph-mcp@latest', '--force'], { encoding: 'utf8', stdio: 'pipe', shell: true });
+  }
+
   updateSpin.stop();
 
   if (result.status !== 0) {
