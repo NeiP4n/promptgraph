@@ -107,14 +107,22 @@ export default async function handler(args, bin) {
       );
       process.exit(1);
     }
-    console.log(chalk.green(`found: ${detected.label}/`));
+    const { validMdCount, hasScripts } = detected;
+    console.log(chalk.green(`found: ${detected.label}/`) + chalk.gray(` (${validMdCount} valid skills${hasScripts ? ', has scripts 🔧' : ''})`));
+
+    if (validMdCount === 0) {
+      error(`Cannot publish: ${repo}/${detected.label} has no skills that pass validation.\n  All .md files were filtered (README/changelog/docs/etc).`);
+      process.exit(1);
+    }
+
     const name = repo.split('/')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const id = repo.replace('/', '-').toLowerCase();
     const bundle = {
       id, name, repo_url: repo, author: repo.split('/')[0],
       description: `Skills from ${repo}`,
       tags: ['community'],
-      stars: 0
+      stars: 0,
+      ...(hasScripts && { has_tools: true }),
     };
     const json = JSON.stringify(bundle, null, 2);
 

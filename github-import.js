@@ -197,9 +197,22 @@ export async function validateRepoSkills(ownerRepo) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
+const SCRIPT_EXTS_API = new Set(['.py', '.sh', '.bash', '.js', '.ts', '.rb']);
+
+function countValidMd(fileEntries) {
+  return fileEntries.filter(e =>
+    e.type === 'file' && e.name.endsWith('.md') &&
+    !SKIP_RE.test(e.name.replace(/\.md$/i, '').toLowerCase())
+  ).length;
+}
+
+function hasScriptFiles(fileEntries) {
+  return fileEntries.some(e => e.type === 'file' && SCRIPT_EXTS_API.has(path.extname(e.name).toLowerCase()));
+}
+
 // Ask GitHub API which subdir to use (without cloning anything). Exported for validation.
+// Returns { subdir, label, validMdCount, hasScripts } or null (repo not found / no skills).
 export
-// Returns { subdir, label } or null (use root).
 async function detectSkillsDirFromAPI(ownerRepo) {
   try {
     const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents`);
@@ -208,7 +221,14 @@ async function detectSkillsDirFromAPI(ownerRepo) {
     // 1. Known skill dir names (priority order)
     const dirMap = new Map(entries.filter(e => e.type === 'dir').map(e => [e.name.toLowerCase(), e.name]));
     for (const d of SKILL_DIRS) {
-      if (dirMap.has(d)) return { subdir: dirMap.get(d), label: d };
+      if (dirMap.has(d)) {
+        try {
+          const sub = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dirMap.get(d)}`));
+          const validMdCount = countValidMd(sub);
+          if (validMdCount === 0) continue; // dir exists but no valid skills — try next
+          return { subdir: dirMap.get(d), label: d, validMdCount, hasScripts: hasScriptFiles(sub) };
+        } catch {}
+      }
     }
 
     // 1.5 Nested skills dirs (e.g. .claude/skills, .claude-plugin/commands)
@@ -217,30 +237,29 @@ async function detectSkillsDirFromAPI(ownerRepo) {
         for (const d of SKILL_DIRS) {
           const nested = `${prefix}/${d}`;
           try {
-            const sub = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${nested}`);
-            const subEntries = JSON.parse(sub);
-            if (subEntries.length > 0) return { subdir: nested, label: nested };
+            const sub = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${nested}`));
+            const validMdCount = countValidMd(sub);
+            if (validMdCount > 0) return { subdir: nested, label: nested, validMdCount, hasScripts: hasScriptFiles(sub) };
           } catch {}
         }
       }
     }
 
-    // 2. Any subdir with 2+ .md files — pick the one with most .md files
+    // 2. Any subdir with valid .md files — pick the one with most
     const subdirCandidates = entries.filter(e => e.type === 'dir' && !SKIP_DIRS_API.has(e.name.toLowerCase()));
-    let best = null, bestCount = 0;
+    let best = null, bestCount = 0, bestScripts = false;
     for (const dir of subdirCandidates) {
       try {
-        const sub = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dir.name}`);
-        const subEntries = JSON.parse(sub);
-        const mdCount = subEntries.filter(e => e.type === 'file' && e.name.endsWith('.md')).length;
-        if (mdCount >= 1 && mdCount > bestCount) { best = dir.name; bestCount = mdCount; }
+        const sub = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dir.name}`));
+        const mdCount = countValidMd(sub);
+        if (mdCount > bestCount) { best = dir.name; bestCount = mdCount; bestScripts = hasScriptFiles(sub); }
       } catch {}
     }
-    if (best) return { subdir: best, label: best };
+    if (best) return { subdir: best, label: best, validMdCount: bestCount, hasScripts: bestScripts };
 
-    // 3. Root-level .md files (no subdirectory, skills live at repo root)
-    const rootMd = entries.filter(e => e.type === 'file' && e.name.endsWith('.md') && !SKIP_RE.test(e.name.replace(/\.md$/i, '').toLowerCase()));
-    if (rootMd.length >= 1) return { subdir: null, label: 'root' };
+    // 3. Root-level valid .md files
+    const validMdCount = countValidMd(entries);
+    if (validMdCount >= 1) return { subdir: null, label: 'root', validMdCount, hasScripts: hasScriptFiles(entries) };
 
   } catch {}
   return null; // repo not found or inaccessible
