@@ -57,7 +57,14 @@ function makeDefaults(skillsDir, platform) {
 
 export function loadConfig() {
   if (fs.existsSync(CONFIG_PATH)) {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    // Strip a UTF-8/UTF-16 BOM if an editor or PowerShell wrote one — JSON.parse
+    // rejects a leading BOM and would otherwise crash every command.
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8').replace(/^﻿/, '');
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`Config file is corrupted (${CONFIG_PATH}): ${e.message}. Delete it to regenerate defaults.`);
+    }
   }
   return JSON.parse(JSON.stringify(makeDefaults()));
 }
