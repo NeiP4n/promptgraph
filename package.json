@@ -1,10 +1,11 @@
 {
   "name": "promptgraph-mcp",
-  "version": "2.9.61",
+  "version": "2.9.62",
   "files": [
     "*.js",
     "commands/",
     "src/",
+    "skills/",
     "README.md",
     ".claude-plugin/",
     ".mcp.json"

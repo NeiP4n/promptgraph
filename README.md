@@ -128,6 +128,24 @@ Your **skill files** stay wherever you put them (the platform skills dir or any 
 
 ---
 
+## Skill orchestration — `pg` → `pg-chain`
+
+`pg setup` installs two router skills:
+
+- **`pg`** — single lookup: search → read → execute one skill for a task.
+- **`pg-chain`** — orchestrator: wraps `pg` in a controlled loop for **multi-step** tasks. The model runs a skill, reassesses, finds the next skill, runs it, and repeats **until the goal is met** — following explicit skill chains (`pg_callees`) and discovering new ones (`pg_search`) as needs emerge.
+
+`pg-chain` has hard stop conditions so it can't loop forever: goal met, max 7 skills per chain, a repeat-guard (never re-run the same skill on the same sub-task), and a no-progress guard. It keeps a visible `Goal / Done / Now / Left` ledger so the chain is auditable.
+
+```
+"Add a feature flag, make sure nothing broke, and write the commit."
+  → feature-flag ✓ → safe-verify ✓ → commit-message ✓  (3 skills chained)
+```
+
+Use `pg` for one-step tasks, `pg-chain` when a request clearly spans several skills.
+
+---
+
 ## OpenCode — `/pg` slash commands
 
 After `pg setup opencode`, two slash commands are available inside OpenCode:

@@ -1,5 +1,39 @@
 import { colors, success, error, info, section } from '../cli.js';
 import chalk from 'chalk';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Install the bundled router skills (pg, pg-chain) so a fresh install actually
+// has the orchestration capability — not just docs that reference it.
+// Copies into skillsDir (indexed → discoverable via pg_search on every platform)
+// and, on Claude platforms, into ~/.claude/commands (so /pg & /pg-chain slash
+// commands work). Never overwrites a user-edited copy.
+function installRouterSkills(skillsDir, platformId) {
+  const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const srcDir = path.join(pkgRoot, 'skills');
+  if (!fs.existsSync(srcDir)) return;
+  const files = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
+
+  const targets = [path.join(skillsDir, '_promptgraph')];
+  if (platformId === 'claude-code' || platformId === 'claude-desktop') {
+    targets.push(path.join(os.homedir(), '.claude', 'commands'));
+  }
+
+  let installed = 0;
+  for (const dir of targets) {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of files) {
+      const dest = path.join(dir, f);
+      // Don't clobber a copy the user has customized; refresh only if missing/identical-origin.
+      if (fs.existsSync(dest)) continue;
+      fs.copyFileSync(path.join(srcDir, f), dest);
+      installed++;
+    }
+  }
+  if (installed) success(`Installed router skills (${files.map(f => f.replace('.md', '')).join(', ')})`);
+}
 
 export default async function handler(args, bin) {
   const { detectPlatforms, PLATFORMS } = await import('../platform.js');
@@ -42,6 +76,9 @@ export default async function handler(args, bin) {
   const skillsDir = config.skillsDir;
   success(`Skills directory: ${chalk.white(skillsDir)}`);
   info(chalk.gray('  Marketplace installs and pg import will save here'));
+
+  // 2b. Install bundled router skills (pg + pg-chain orchestrator)
+  try { installRouterSkills(skillsDir, platformId); } catch (e) { info(chalk.gray(`  (router skills skipped: ${e.message})`)); }
 
   // 3. Reindex
   console.log(chalk.gray('\n  Indexing skills...\n'));
