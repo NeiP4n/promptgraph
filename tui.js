@@ -194,7 +194,8 @@ function render(state, installedSet = new Set()) {
       : dim(' Enter') + chalk.white(' install') + dim('  ');
     write(instLabel + dim('Tab') + ' all/skills/bundles/recent  ' + dim('/') + ' search  ' + dim('q') + ' quit' + CLEAR_EOL + '\n');
     const ghUrl = sel.repo_url ? chalk.hex('#3B82F6')(`  ↗ github.com/${sel.repo_url}`) : '';
-    write(dim(` → pg ${installCmd}`) + ghUrl + CLEAR_EOL + '\n');
+    const toolsNote = sel.has_tools ? chalk.hex('#F59E0B')('  🔧 includes scripts (py/sh/js)') : '';
+    write(dim(` → pg ${installCmd}`) + ghUrl + toolsNote + CLEAR_EOL + '\n');
   } else if (state.confirming) {
     write(chalk.red.bold(' Remove ') + chalk.white(state.confirming.name) + chalk.red('? ') +
       chalk.white.bold('[y]') + chalk.gray('es  ') + chalk.white.bold('[n]') + chalk.gray('o') + CLEAR_EOL + '\n');
