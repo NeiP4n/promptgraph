@@ -107,13 +107,35 @@ export default async function handler(args, bin) {
       );
       process.exit(1);
     }
-    const { validMdCount, hasScripts } = detected;
-    console.log(chalk.green(`found: ${detected.label}/`) + chalk.gray(` (${validMdCount} valid skills${hasScripts ? ', has scripts 🔧' : ''})`));
+    const { validMdCount, hasScripts: hasScriptsQuick } = detected;
+    console.log(chalk.green(`found: ${detected.label}/`) + chalk.gray(` (~${validMdCount} skills by name)`));
 
     if (validMdCount === 0) {
       error(`Cannot publish: ${repo}/${detected.label} has no skills that pass validation.\n  All .md files were filtered (README/changelog/docs/etc).`);
       process.exit(1);
     }
+
+    // Deep validation: fetch each file via raw (free) + validateSkill on content
+    const { deepValidateRepo: _deepVal } = await import('../github-import.js');
+    process.stdout.write(chalk.gray(`  Validating skill content (${validMdCount} files)... `));
+    let deepResult;
+    try {
+      deepResult = await _deepVal(repo, detected.subdir, (done, total) => {
+        process.stdout.write(`\r  Validating skill content: ${done}/${total}... `);
+      });
+    } catch (e) {
+      process.stdout.write('\n');
+      error(`Validation failed: ${e.message}`); process.exit(1);
+    }
+    process.stdout.write('\n');
+
+    if (deepResult.passed === 0) {
+      error(`Cannot publish: all ${deepResult.total} skill files failed content validation (too short, security patterns, etc).`);
+      process.exit(1);
+    }
+
+    const hasScripts = hasScriptsQuick || deepResult.hasScripts;
+    console.log(chalk.green(`  ✓ ${deepResult.passed}/${deepResult.total} skills valid${hasScripts ? '  🔧 scripts detected' : ''}`));
 
     const name = repo.split('/')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const id = repo.replace('/', '-').toLowerCase();

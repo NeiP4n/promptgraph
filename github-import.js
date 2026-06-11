@@ -265,6 +265,48 @@ async function detectSkillsDirFromAPI(ownerRepo) {
   return null; // repo not found or inaccessible
 }
 
+// Deep-validate a repo bundle via 1 API call (tree) + raw file fetches (not rate-limited).
+// Returns { passed, total, hasScripts } — passed = skills that survive validateSkill().
+export async function deepValidateRepo(ownerRepo, subdir, onProgress) {
+  const treeJson = await httpsGet(`https://api.github.com/repos/${ownerRepo}/git/trees/HEAD?recursive=1`);
+  const tree = JSON.parse(treeJson);
+
+  const prefix = subdir ? `${subdir}/` : '';
+  const allBlobs = (tree.tree || []).filter(f => f.type === 'blob');
+
+  const mdFiles = allBlobs.filter(f =>
+    f.path.startsWith(prefix) &&
+    f.path.endsWith('.md') &&
+    !SKIP_RE.test(path.basename(f.path, '.md').toLowerCase())
+  );
+
+  const hasScripts = allBlobs.some(f =>
+    f.path.startsWith(prefix) && SCRIPT_EXTS.has(path.extname(f.path).toLowerCase())
+  );
+
+  const tmpDir = fs.mkdtempSync(path.join(PROMPTGRAPH_DIR, 'pg-val-'));
+  let passed = 0;
+  const total = mdFiles.length;
+
+  try {
+    for (let i = 0; i < mdFiles.length; i++) {
+      const f = mdFiles[i];
+      if (onProgress) onProgress(i + 1, total);
+      try {
+        const rawUrl = `https://raw.githubusercontent.com/${ownerRepo}/HEAD/${f.path}`;
+        const content = await streamDownload(rawUrl);
+        const tmpFile = path.join(tmpDir, `skill-${i}.md`);
+        fs.writeFileSync(tmpFile, content);
+        if (validateSkill(tmpFile).ok) passed++;
+      } catch {}
+    }
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+
+  return { passed, total, hasScripts };
+}
+
 const SKIP_DIRS_API = new Set([
   '.github', 'docs', 'doc', 'documentation', 'examples', 'example',
   'tests', 'test', 'assets', 'images', 'img', 'media', 'static',
