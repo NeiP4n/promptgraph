@@ -1,6 +1,6 @@
 # PromptGraph
 
-**Semantic skill router and marketplace for Claude Code and OpenCode.**
+**Semantic skill router and marketplace for Claude Code, Claude Desktop, and OpenCode.**
 
 Instead of loading every `.md` skill into context, Claude calls `pg_search` and loads only the skill it needs — saving 20k+ tokens per session.
 
@@ -18,7 +18,7 @@ Instead of loading every `.md` skill into context, Claude calls `pg_search` and 
 - **Any local folder** — `pg add-dir <path>` indexes a folder that isn't a default source
 - **Marketplace** — browse and install community skill bundles via TUI or MCP tools
 - **Publishing** — publish skills/bundles to the registry hands-off via GitHub CLI
-- **Multi-platform** — verified on Claude Code & OpenCode; best-effort config for Claude Desktop, Cursor, Windsurf, Cline, Codex
+- **Multi-platform** — verified on Claude Code, Claude Desktop & OpenCode; best-effort config for Cursor, Windsurf, Cline, Codex
 
 ---
 
@@ -48,13 +48,13 @@ Then restart your editor — the `promptgraph` MCP server will be available.
 
 ## Supported platforms
 
-Only **Claude Code** and **OpenCode** are verified end-to-end. The others are best-effort — the MCP config path/format is implemented but untested, so `pg setup` warns before writing. If you run one, please [report results](https://github.com/NeiP4n/promptgraph/issues).
+**Claude Code**, **Claude Desktop**, and **OpenCode** are verified end-to-end. The others are best-effort — the MCP config path/format is implemented but untested, so `pg setup` warns before writing. If you run one, please [report results](https://github.com/NeiP4n/promptgraph/issues).
 
 | Platform | Status | Config written | Skills directory |
 |---|---|---|---|
 | `claude-code` | ✅ verified | `~/.claude/settings.json` | `~/.claude/skills-store` |
+| `claude-desktop` | ✅ verified | `claude_desktop_config.json` (OS-specific) | `~/.claude/skills-store` |
 | `opencode` | ✅ verified | `~/.config/opencode/opencode.json` | `~/.config/opencode/skills` |
-| `claude-desktop` | ⚠️ untested | `claude_desktop_config.json` (OS-specific) | `~/.claude/skills-store` |
 | `cursor` | ⚠️ untested | `~/.cursor/mcp.json` | `~/.cursor/skills` |
 | `windsurf` | ⚠️ untested | `~/.codeium/windsurf/mcp_config.json` | `~/.codeium/windsurf/skills` |
 | `cline` | ⚠️ untested | `~/.vscode/mcp.json` | `~/.vscode/skills` |

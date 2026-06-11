@@ -59,7 +59,7 @@ export const PLATFORMS = {
     name: 'Claude Desktop',
     configPath: getClaudeDesktopConfig(),
     addMcp: (config) => addStdMcp(config.configPath),
-    verified: false,
+    verified: true,
   },
   'cline': {
     name: 'Cline (VS Code)',

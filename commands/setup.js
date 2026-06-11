@@ -14,8 +14,8 @@ export default async function handler(args, bin) {
       info(`${chalk.white(p.id.padEnd(16))} ${chalk.gray(p.name.padEnd(20))} ${tag}`);
     });
     console.log(chalk.gray('\n  Usage: pg setup <platform>'));
-    console.log(chalk.green('  Verified: ') + chalk.gray('claude-code, opencode'));
-    console.log(chalk.yellow('  Untested: ') + chalk.gray('claude-desktop, cursor, windsurf, cline, codex') + chalk.gray('  (best-effort — please report results)\n'));
+    console.log(chalk.green('  Verified: ') + chalk.gray('claude-code, claude-desktop, opencode'));
+    console.log(chalk.yellow('  Untested: ') + chalk.gray('cursor, windsurf, cline, codex') + chalk.gray('  (best-effort — please report results)\n'));
     process.exit(0);
   }
 
@@ -23,7 +23,7 @@ export default async function handler(args, bin) {
   if (!platform) { error(`Unknown platform: ${platformId}`); process.exit(1); }
 
   if (!platform.verified) {
-    console.log(chalk.yellow(`  ⚠ ${platform.name} is untested.`) + chalk.gray(' Only claude-code and opencode are verified.'));
+    console.log(chalk.yellow(`  ⚠ ${platform.name} is untested.`) + chalk.gray(' Verified: claude-code, claude-desktop, opencode.'));
     console.log(chalk.gray(`    The MCP config format/path below is best-effort and may need manual fixing.`));
     console.log(chalk.gray(`    If it works (or doesn't), please report: https://github.com/NeiP4n/promptgraph/issues\n`));
   }
