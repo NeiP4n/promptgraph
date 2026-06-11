@@ -77,6 +77,10 @@ pg update                       # Update promptgraph-mcp to latest version
 pg search <query>               # Semantic search across your skills
 pg marketplace                  # Browse community skill bundles (TUI)
 
+# Skill graph
+pg plan <skill>                 # DAG execution plan: order, parallel levels, cycle detection
+pg duplicates                   # Find near-duplicate / overlapping skills
+
 # Install
 pg install <id>                 # Install a skill by marketplace ID (pg-xxxxxx)
 pg import <github-url>          # Import skills directly from a GitHub repo URL

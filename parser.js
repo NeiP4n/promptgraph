@@ -5,7 +5,9 @@ import { hardFilter } from './src/filter/hard-filter.js';
 import { classify } from './src/filter/classifier.js';
 import { loadModel } from './src/filter/train.js';
 
-const SKILL_REF_RE = /(?<!https?:|ftp:)(?<![a-zA-Z0-9])\/([a-z0-9][a-z0-9-]{2,})/g;
+// /skill-name reference. Trailing (?![a-z0-9-]|\/) forces the full word and rejects
+// path segments like /var/log, /usr/bin (a slash right after the word → not a skill ref).
+const SKILL_REF_RE = /(?<!https?:|ftp:)(?<![a-zA-Z0-9])\/([a-z0-9][a-z0-9-]{2,})(?![a-z0-9-]|\/)/g;
 
 // Generic filenames that carry no identity — name comes from the parent folder.
 const GENERIC_SKILL_FILENAMES = new Set([

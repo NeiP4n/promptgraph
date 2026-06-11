@@ -99,10 +99,10 @@ export async function indexBatch(db, skills, { fast = false, silent = false, onE
     for (const skill of skills) {
       const id = skillId(skill.source, skill.name);
       for (const calledName of skill.calls) {
-        // prefer a skill in the same source, fall back to any, then bare name
-        const same = resolveSameSource.get(calledName, skill.source);
-        const resolved = same || resolveAny.get(calledName);
-        upsertEdge.run(id, resolved ? resolved.id : calledName);
+        // Only keep an edge if it resolves to a REAL indexed skill — otherwise
+        // `/var`, `/usr`, `/scan` (paths & command words) pollute the call graph.
+        const resolved = resolveSameSource.get(calledName, skill.source) || resolveAny.get(calledName);
+        if (resolved && resolved.id !== id) upsertEdge.run(id, resolved.id);
       }
     }
   })();

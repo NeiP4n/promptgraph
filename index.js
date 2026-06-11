@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train', 'add-dir']);
+const KNOWN_COMMANDS = new Set(['reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train', 'add-dir', 'plan', 'duplicates']);
 
 function showHelp() {
   console.log(
@@ -34,6 +34,8 @@ function showHelp() {
     ['search <query>',      'Search skills from the terminal'],
     ['import <owner/repo>', 'Import skills from GitHub'],
     ['add-dir <path>',      'Index skills from a local folder (any platform)'],
+    ['plan <skill>',        'Show the DAG execution plan (order, parallel levels, cycles)'],
+    ['duplicates',          'Find near-duplicate / overlapping skills'],
     ['status',              'Show installed skills, repos, and bundles'],
     ['install <name>',      'Install a bundle by name, code, or id'],
     ['marketplace',         'Interactive TUI: browse + search + install skills & bundles'],
@@ -95,6 +97,8 @@ const COMMAND_MAP = {
   update:    './commands/update.js',
   reindex:   './commands/reindex.js',
   'add-dir': './commands/add-dir.js',
+  plan:      './commands/plan.js',
+  duplicates: './commands/duplicates.js',
 }
 
 if (COMMAND_MAP[args[0]]) {
@@ -168,6 +172,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'pg_impact',
       description: 'Get all skills that would be affected if this skill changes.',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'pg_plan',
+      description: 'Build a DAG execution plan for a goal skill: full transitive dependency graph, topological order (dependencies first), parallelizable levels, cycle detection, and unresolved references. Call before chaining to know the whole plan up front.',
       inputSchema: {
         type: 'object',
         properties: { name: { type: 'string' } },
@@ -288,6 +301,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pg_callers': result = getCallers(args.name); break;
       case 'pg_callees': result = getCallees(args.name); break;
       case 'pg_impact': result = getImpact(args.name); break;
+      case 'pg_plan': { const { buildPlan } = await import('./planner.js'); result = buildPlan(args.name); break; }
       case 'pg_rate':
         if (args.outcome === 'use') recordUse(args.skill_id);
         else if (args.outcome === 'success') recordSuccess(args.skill_id);
