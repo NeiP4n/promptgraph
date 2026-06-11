@@ -4,3 +4,8 @@ coverage/
 model-cache/
 local_cache/
 config.json
+
+# Local working notes (not for publication)
+DoD.md
+LAST_SESSION.md
+_handoff/

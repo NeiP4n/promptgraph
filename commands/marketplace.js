@@ -21,10 +21,10 @@ export default async function handler(args, bin) {
     process.exit(result.errors.length > 0 ? 1 : 0);
   }
 
-  if (!process.stdout.isTTY) {
-    error('marketplace TUI requires an interactive terminal');
-    process.exit(1);
-  }
+  // Interactive TUI needs a real terminal. Non-tty hosts (opencode, pipes, CI)
+  // get a plain text listing instead of a broken escape-sequence dump.
+  const interactive = process.stdout.isTTY && process.stdin.isTTY;
+
   const { browseMarketplace, browseBundles, installSkill, installBundle, installBundleBg, validateAndPruneMarketplace } = await import('../marketplace.js');
   const { loadConfig: _lcMkt } = await import('../config.js');
   const { getDb: _getDbMkt } = await import('../db.js');
@@ -87,6 +87,12 @@ export default async function handler(args, bin) {
       if (fs.existsSync(row.path)) installedSet.add(row.id);
     }
   } catch {}
+
+  // Non-interactive host (opencode, pipe, CI): print a plain list, no escape codes.
+  if (!interactive) {
+    printPlainList(Array.isArray(skills) ? skills : [], bundlesWithCounts, installedSet);
+    process.exit(0);
+  }
 
   const { runTUI } = await import('../tui.js');
   const { loadConfig: _lcR, saveConfig: _scR, SKILLS_STORE_DIR: _ssR } = await import('../config.js');
@@ -154,4 +160,39 @@ export default async function handler(args, bin) {
     }
   );
   process.exit(0);
+}
+
+// Plain, escape-code-free listing for non-interactive hosts (opencode, pipes, CI).
+function printPlainList(skills, bundles, installedSet) {
+  const tools = process.stdout.isTTY ? chalk : new Proxy({}, { get: () => (s) => s });
+  const c = tools;
+
+  console.log(c.bold(`\nPromptGraph marketplace — ${skills.length} skills · ${bundles.length} bundles\n`));
+
+  if (bundles.length) {
+    console.log(c.bold('Bundles'));
+    for (const b of bundles) {
+      const installed = installedSet.has(b.id) ? '✓ ' : '  ';
+      const count = b.skillCount != null ? `${b.skillCount} sk` : '';
+      const wrench = b.has_tools ? ' 🔧' : '';
+      const desc = (b.description || '').replace(/\s+/g, ' ').slice(0, 60);
+      console.log(`${installed}${c.cyan((b.name || b.id).padEnd(28))} ${count.padEnd(8)}${wrench}  ${c.gray(desc)}`);
+      console.log(`    ${c.gray(`pg bundle install ${b.id}`)}${b.repo_url ? c.gray(`   ↗ github.com/${b.repo_url}`) : ''}`);
+    }
+    console.log();
+  }
+
+  if (skills.length) {
+    console.log(c.bold('Skills'));
+    for (const s of skills) {
+      const installed = installedSet.has(s.id) || (s.code && installedSet.has(s.code)) ? '✓ ' : '  ';
+      const desc = (s.description || '').replace(/\s+/g, ' ').slice(0, 60);
+      console.log(`${installed}${c.cyan((s.name || s.id).padEnd(28))} ${(s.code || '').padEnd(10)}  ${c.gray(desc)}`);
+      console.log(`    ${c.gray(`pg install ${s.code || s.id}`)}`);
+    }
+    console.log();
+  }
+
+  console.log(c.gray('Tip: this plain list appears because the terminal is non-interactive (e.g. opencode).'));
+  console.log(c.gray('     Run `pg marketplace` in a native terminal for the interactive browser.\n'));
 }

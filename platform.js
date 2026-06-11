@@ -39,41 +39,51 @@ function addOpenCodeMcp(configPath) {
   }
 }
 
+// `verified: true` means the MCP config format + skills dir were actually tested
+// on that platform. Unverified entries are best-effort (config path/format may be
+// wrong) — `pg setup` warns before writing so we never imply false support.
 export const PLATFORMS = {
   'claude-code': {
     name: 'Claude Code',
     configPath: path.join(HOME, '.claude', 'settings.json'),
     addMcp: (config) => addStdMcp(config.configPath),
-  },
-  'claude-desktop': {
-    name: 'Claude Desktop',
-    configPath: getClaudeDesktopConfig(),
-    addMcp: (config) => addStdMcp(config.configPath),
-  },
-  'cline': {
-    name: 'Cline (VS Code)',
-    configPath: path.join(HOME, '.vscode', 'mcp.json'),
-    addMcp: (config) => addClineMcp(config.configPath),
-  },
-  'codex': {
-    name: 'OpenAI Codex CLI',
-    configPath: path.join(HOME, '.codex', 'config.json'),
-    addMcp: (config) => addStdMcp(config.configPath),
-  },
-  'cursor': {
-    name: 'Cursor',
-    configPath: path.join(HOME, '.cursor', 'mcp.json'),
-    addMcp: (config) => addStdMcp(config.configPath),
-  },
-  'windsurf': {
-    name: 'Windsurf',
-    configPath: path.join(HOME, '.codeium', 'windsurf', 'mcp_config.json'),
-    addMcp: (config) => addStdMcp(config.configPath),
+    verified: true,
   },
   'opencode': {
     name: 'OpenCode',
     configPath: getOpenCodeConfig(),
     addMcp: (config) => addOpenCodeMcp(config.configPath),
+    verified: true,
+  },
+  'claude-desktop': {
+    name: 'Claude Desktop',
+    configPath: getClaudeDesktopConfig(),
+    addMcp: (config) => addStdMcp(config.configPath),
+    verified: false,
+  },
+  'cline': {
+    name: 'Cline (VS Code)',
+    configPath: path.join(HOME, '.vscode', 'mcp.json'),
+    addMcp: (config) => addClineMcp(config.configPath),
+    verified: false,
+  },
+  'codex': {
+    name: 'OpenAI Codex CLI',
+    configPath: path.join(HOME, '.codex', 'config.json'),
+    addMcp: (config) => addStdMcp(config.configPath),
+    verified: false,
+  },
+  'cursor': {
+    name: 'Cursor',
+    configPath: path.join(HOME, '.cursor', 'mcp.json'),
+    addMcp: (config) => addStdMcp(config.configPath),
+    verified: false,
+  },
+  'windsurf': {
+    name: 'Windsurf',
+    configPath: path.join(HOME, '.codeium', 'windsurf', 'mcp_config.json'),
+    addMcp: (config) => addStdMcp(config.configPath),
+    verified: false,
   },
 };
 

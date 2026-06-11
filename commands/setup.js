@@ -9,14 +9,24 @@ export default async function handler(args, bin) {
 
   if (!platformId) {
     section('Detected platforms');
-    detectPlatforms().forEach(p => info(`${chalk.white(p.id.padEnd(16))} ${chalk.gray(p.name)}`));
-    console.log(chalk.gray('\n  Usage: pg setup <platform>\n'));
-    console.log(chalk.gray('  Platforms: claude-code, claude-desktop, opencode, cursor, windsurf, cline, codex\n'));
+    detectPlatforms().forEach(p => {
+      const tag = p.verified ? chalk.green('verified') : chalk.yellow('untested');
+      info(`${chalk.white(p.id.padEnd(16))} ${chalk.gray(p.name.padEnd(20))} ${tag}`);
+    });
+    console.log(chalk.gray('\n  Usage: pg setup <platform>'));
+    console.log(chalk.green('  Verified: ') + chalk.gray('claude-code, opencode'));
+    console.log(chalk.yellow('  Untested: ') + chalk.gray('claude-desktop, cursor, windsurf, cline, codex') + chalk.gray('  (best-effort — please report results)\n'));
     process.exit(0);
   }
 
   const platform = PLATFORMS[platformId];
   if (!platform) { error(`Unknown platform: ${platformId}`); process.exit(1); }
+
+  if (!platform.verified) {
+    console.log(chalk.yellow(`  ⚠ ${platform.name} is untested.`) + chalk.gray(' Only claude-code and opencode are verified.'));
+    console.log(chalk.gray(`    The MCP config format/path below is best-effort and may need manual fixing.`));
+    console.log(chalk.gray(`    If it works (or doesn't), please report: https://github.com/NeiP4n/promptgraph/issues\n`));
+  }
 
   // 1. Write MCP config
   try {
