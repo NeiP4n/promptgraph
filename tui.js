@@ -50,7 +50,7 @@ function buildItems(skills, bundles) {
     items.push({ type: 'skill', id: s.id, name: s.name || s.id, description: s.description || '', category: s.category || 'Community', tags: s.tags || [], stars: s.stars || 0, code: s.code, created_at: s.created_at || null });
   }
   for (const b of bundles) {
-    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, repo_url: b.repo_url, skills: b.skills, has_tools: b.has_tools || false, created_at: b.created_at || null });
+    items.push({ type: 'bundle', id: b.id, name: b.name || b.id, description: b.description || '', category: b.category || 'Community', tags: b.tags || [], stars: b.stars || 0, skillCount: b.skillCount, validated: b.validated || false, repo_url: b.repo_url, skills: b.skills, has_tools: b.has_tools || false, created_at: b.created_at || null });
   }
   return items;
 }
@@ -165,7 +165,7 @@ function render(state, installedSet = new Set()) {
     const toolsBadge = item.has_tools ? chalk.hex('#F59E0B')(' 🔧') : '';
     const extra = item.type === 'bundle'
       ? item.skillCount
-        ? blue(((installed ? '' : '~') + item.skillCount + ' sk').padEnd(8)) + toolsBadge
+        ? blue(((installed || item.validated ? '' : '~') + item.skillCount + ' sk').padEnd(8)) + toolsBadge
         : item.repo_url
           ? chalk.hex('#3B82F6')('↗ GitHub') + toolsBadge
           : dim(((item.skills?.length || 0) + ' sk').padEnd(8)) + toolsBadge

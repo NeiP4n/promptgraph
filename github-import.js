@@ -53,6 +53,7 @@ function streamDownload(url, maxSize = MAX_DOWNLOAD_SIZE, redirects = 0) {
       })
       r.on('end', () => res(chunks.join('')))
     })
+    req.setTimeout(30000, () => req.destroy(new Error('streamDownload timeout')))
     req.on('error', rej)
   })
 }
@@ -80,6 +81,7 @@ async function httpsGet(url, redirects = 0) {
       if (r.statusCode !== 200) { r.resume(); return rej(new Error(`HTTP ${r.statusCode}`)); }
       const chunks = []; r.setEncoding('utf8'); r.on('data', c => chunks.push(c)); r.on('end', () => res(chunks.join('')));
     });
+    req.setTimeout(30000, () => req.destroy(new Error('httpsGet timeout')));
     req.on('error', rej);
   });
 }

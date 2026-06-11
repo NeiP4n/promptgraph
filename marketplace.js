@@ -314,10 +314,14 @@ export async function browseBundles(topK = 20) {
         return;
       }
 
-      // 2. Not installed — use cached API count if fresh
+      // 2. Not installed — validated registry count is authoritative; use cache if fresh
       const cached = cache[b.repo_url];
       if (cached && (now - cached.ts) < SKILL_COUNT_TTL) {
         b.skillCount = cached.count;
+        return;
+      }
+      if (b.validated && b.skill_count) {
+        b.skillCount = b.skill_count;
         return;
       }
 
@@ -328,7 +332,7 @@ export async function browseBundles(topK = 20) {
         cache[b.repo_url] = { count, ts: now };
         changed = true;
       } else {
-        b.skillCount = cached?.count ?? b.skillCount ?? 0;
+        b.skillCount = cached?.count ?? b.skill_count ?? 0;
       }
     }));
 

@@ -144,6 +144,8 @@ export default async function handler(args, bin) {
       description: `Skills from ${repo}`,
       tags: ['community'],
       stars: 0,
+      skill_count: deepResult.passed,
+      validated: true,
       ...(hasScripts && { has_tools: true }),
     };
     const json = JSON.stringify(bundle, null, 2);

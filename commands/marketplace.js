@@ -57,7 +57,8 @@ export default async function handler(args, bin) {
       return { ...b, skillCount: realCount, has_tools: b.has_tools || hasScripts };
     }
     const cached = getCachedCount(b.repo_url);
-    return cached !== null ? { ...b, skillCount: cached } : b;
+    const knownCount = cached ?? b.skill_count ?? null;
+    return knownCount !== null ? { ...b, skillCount: knownCount } : b;
   });
   refreshCountsInBackground(bundlesWithCounts);
 
