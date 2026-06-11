@@ -4,7 +4,13 @@ import os from 'os';
 
 const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude');
-export const PROMPTGRAPH_DIR = path.join(CLAUDE_DIR, '.promptgraph');
+
+// Data dir (config/db/index) is platform-neutral at ~/.promptgraph so non-Claude
+// users (opencode/cursor/…) don't get a stray ~/.claude folder. Existing Claude
+// installs keep using ~/.claude/.promptgraph so their index isn't orphaned.
+const LEGACY_PG_DIR = path.join(CLAUDE_DIR, '.promptgraph');
+const NEUTRAL_PG_DIR = path.join(HOME, '.promptgraph');
+export const PROMPTGRAPH_DIR = fs.existsSync(LEGACY_PG_DIR) ? LEGACY_PG_DIR : NEUTRAL_PG_DIR;
 const CONFIG_PATH = path.join(PROMPTGRAPH_DIR, 'config.json');
 
 export const PLATFORM_SKILLS_DIRS = {
@@ -32,17 +38,20 @@ export const RATE_LIMIT_REQUESTS = 30               // requests per window
 export const RATE_LIMIT_WINDOW_MS = 60000           // 1 minute window
 export const BATCH_SIZE = 100                       // batch indexing size
 
-function makeDefaults(skillsDir) {
+function makeDefaults(skillsDir, platform) {
   const base = skillsDir || path.join(CLAUDE_DIR, 'skills-store');
-  return {
-    skillsDir: base,
-    sources: [
-      { dir: base, source: 'skills-store' },
-      { dir: path.join(base, 'marketplace'), source: 'marketplace' },
-      { dir: path.join(CLAUDE_DIR, 'skills'),   source: 'skills' },
-      { dir: path.join(CLAUDE_DIR, 'commands'), source: 'commands' },
-    ],
-  };
+  const sources = [
+    { dir: base, source: 'skills-store' },
+    { dir: path.join(base, 'marketplace'), source: 'marketplace' },
+  ];
+  // Claude-specific dirs (~/.claude/skills, ~/.claude/commands) only on Claude
+  // platforms — otherwise an opencode/cursor user would index (and create) ~/.claude.
+  const isClaude = !platform || platform.startsWith('claude');
+  if (isClaude) {
+    sources.push({ dir: path.join(CLAUDE_DIR, 'skills'),   source: 'skills' });
+    sources.push({ dir: path.join(CLAUDE_DIR, 'commands'), source: 'commands' });
+  }
+  return { skillsDir: base, sources };
 }
 
 
@@ -67,7 +76,7 @@ export async function promptConfig() {
 export function setupForPlatform(platformId) {
   const skillsDir = PLATFORM_SKILLS_DIRS[platformId] || path.join(CLAUDE_DIR, 'skills-store');
   const existing = loadConfig();
-  const config = makeDefaults(skillsDir);
+  const config = makeDefaults(skillsDir, platformId);
   config.platform = platformId;
   // preserve any custom sources the user added
   if (existing.sources) {

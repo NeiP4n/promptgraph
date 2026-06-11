@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const rawBin = process.argv[1]?.split(/[\\/]/).pop()?.replace(/\.js$/, '');
 const bin = (rawBin && rawBin !== 'index') ? rawBin : 'pg';
 
-const KNOWN_COMMANDS = new Set(['reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train']);
+const KNOWN_COMMANDS = new Set(['reindex', 'update', 'import', 'install', 'setup', 'validate', 'marketplace', 'doctor', 'search', 'help', '--help', '-h', '--version', '-v', 'version', 'bundle', 'status', 'train', 'add-dir']);
 
 function showHelp() {
   console.log(
@@ -33,6 +33,7 @@ function showHelp() {
     ['reindex',             'Re-index all skills'],
     ['search <query>',      'Search skills from the terminal'],
     ['import <owner/repo>', 'Import skills from GitHub'],
+    ['add-dir <path>',      'Index skills from a local folder (any platform)'],
     ['status',              'Show installed skills, repos, and bundles'],
     ['install <name>',      'Install a bundle by name, code, or id'],
     ['marketplace',         'Interactive TUI: browse + search + install skills & bundles'],
@@ -93,6 +94,7 @@ const COMMAND_MAP = {
   setup:     './commands/setup.js',
   update:    './commands/update.js',
   reindex:   './commands/reindex.js',
+  'add-dir': './commands/add-dir.js',
 }
 
 if (COMMAND_MAP[args[0]]) {
