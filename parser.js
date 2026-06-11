@@ -7,6 +7,12 @@ import { loadModel } from './src/filter/train.js';
 
 const SKILL_REF_RE = /(?<!https?:|ftp:)(?<![a-zA-Z0-9])\/([a-z0-9][a-z0-9-]{2,})/g;
 
+// Generic filenames that carry no identity — name comes from the parent folder.
+const GENERIC_SKILL_FILENAMES = new Set([
+  'skill', 'skills', 'index', 'readme', 'agent', 'agents', 'main',
+  'prompt', 'prompts', 'instructions', 'instruction',
+]);
+
 export function isSkillFile(filePath, raw) {
   const result = hardFilter(filePath, raw);
   if (!result.pass) return false;
@@ -51,7 +57,16 @@ export function parseSkillFile(filePath, source, opts = {}) {
     content = raw;
   }
 
-  name = (name && String(name).trim()) || path.basename(filePath, '.md');
+  // Derive name when frontmatter lacks one. For the common "<skill-name>/SKILL.md"
+  // layout (anthropics/skills, google/skills, opencode, …) the filename is generic,
+  // so every skill would collapse to the same id ("skill") and overwrite each other.
+  // Use the parent folder name in that case.
+  let derived = path.basename(filePath, '.md');
+  if (GENERIC_SKILL_FILENAMES.has(derived.toLowerCase())) {
+    const parent = path.basename(path.dirname(filePath));
+    if (parent && parent !== '.') derived = parent;
+  }
+  name = (name && String(name).trim()) || derived;
   description = (description && String(description).trim()) || extractFirstParagraph(content || raw);
 
   const calls = new Set();
