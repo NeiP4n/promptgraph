@@ -225,9 +225,14 @@ async function detectSkillsDirFromAPI(ownerRepo) {
     return null; // repo not found or inaccessible
   }
   if (!tree || !Array.isArray(tree.tree)) return null;
+  const paths = tree.tree.filter(f => f.type === 'blob').map(f => f.path);
+  return selectSkillSubdir(paths);
+}
 
-  const blobs = tree.tree.filter(f => f.type === 'blob');
-  if (blobs.length === 0) return null;
+// Pure subdir-selection logic over a flat list of repo file paths (no network).
+// Returns { subdir, label, validMdCount, hasScripts } or null. Exported for tests.
+export function selectSkillSubdir(allPaths) {
+  if (!Array.isArray(allPaths) || allPaths.length === 0) return null;
 
   // A path is a valid skill .md if the filename isn't meta (readme/license/…) and no
   // path segment is a skip dir (docs/tests/assets/…). Exception: .github/{skills,
@@ -245,17 +250,17 @@ async function detectSkillsDirFromAPI(ownerRepo) {
     }
     return true;
   };
-  const mdBlobs = blobs.filter(f => isValidMd(f.path));
-  if (mdBlobs.length === 0) return null;
+  const mdPaths = allPaths.filter(isValidMd);
+  if (mdPaths.length === 0) return null;
 
-  const countUnder  = (prefix) => mdBlobs.filter(f => f.path.startsWith(prefix)).length;
-  const scriptUnder = (prefix) => blobs.some(f => f.path.startsWith(prefix) && SCRIPT_EXTS_API.has(path.extname(f.path).toLowerCase()));
+  const countUnder  = (prefix) => mdPaths.filter(p => p.startsWith(prefix)).length;
+  const scriptUnder = (prefix) => allPaths.some(p => p.startsWith(prefix) && SCRIPT_EXTS_API.has(path.extname(p).toLowerCase()));
 
   // Map of top-level dir names (lowercase -> real casing)
   const topDirs = new Map();
-  for (const f of blobs) {
-    const idx = f.path.indexOf('/');
-    if (idx > 0) { const d = f.path.slice(0, idx); topDirs.set(d.toLowerCase(), d); }
+  for (const p of allPaths) {
+    const idx = p.indexOf('/');
+    if (idx > 0) { const d = p.slice(0, idx); topDirs.set(d.toLowerCase(), d); }
   }
 
   // 1. Known skill dir names (priority order) — counted recursively
@@ -280,7 +285,7 @@ async function detectSkillsDirFromAPI(ownerRepo) {
   }
 
   // 2. Root-level .md files (skills kept directly at repo root)
-  const rootMd = mdBlobs.filter(f => !f.path.includes('/')).length;
+  const rootMd = mdPaths.filter(p => !p.includes('/')).length;
 
   // 3. Best non-skip top-level subdir by recursive .md count
   let best = null, bestCount = 0;

@@ -11,10 +11,11 @@ Instead of loading every `.md` skill into context, Claude calls `pg_search` and 
 
 ## Features
 
-- **Semantic search** — BGE-Small-EN embeddings, local, no API key required
+- **Semantic search** — BGE-Small-EN embeddings (fastembed), local, no API key required
 - **Token savings** — loads one skill on demand instead of all `.md` files (~20k+ tokens/session)
 - **Fast reindex** — persistent embed cache makes re-indexing unchanged skills near-instant
-- **Low RAM** — first index uses ~0.85 GB (vs 5+ GB in older versions)
+- **Flexible layouts** — finds skills in nested subfolders and in `.github/`, `.claude/`, `.opencode/` dot-folders (GitHub Copilot / agent conventions)
+- **Any local folder** — `pg add-dir <path>` indexes a folder that isn't a default source
 - **Marketplace** — browse and install community skill bundles via TUI or MCP tools
 - **Publishing** — publish skills/bundles to the registry hands-off via GitHub CLI
 - **Multi-platform** — Claude Code, OpenCode, Claude Desktop, Cursor, Windsurf, Cline, Codex
@@ -87,6 +88,44 @@ pg bundle add-repo <owner/repo> # Publish your GitHub repo to the registry (requ
 
 ---
 
+## Where your skills can live
+
+PromptGraph scans each registered source folder **recursively**, so any layout works:
+
+```
+my-skills/
+  commit-message.md                  # flat file — name from filename
+  refactor/SKILL.md                  # folder skill — name from the folder ("refactor")
+  cloud/deploy/SKILL.md              # nested categories — all found
+  .github/skills/my-skill/SKILL.md   # GitHub Copilot / agent convention
+  .claude/skills/...                 # Claude dot-folder
+```
+
+- **Subfolders** at any depth are scanned.
+- **Generic filenames** (`SKILL.md`, `index.md`, `agent.md`, …) take their name from the parent folder, so `cloud/deploy/SKILL.md` and `cloud/infra/SKILL.md` stay distinct instead of colliding.
+- **Dot-folders** `.github/{skills,prompts,agents,commands}`, `.claude/`, `.opencode/` are indexed. Other `.github` paths (`workflows`, `plugins`, …) are skipped.
+- **Doc/meta files** (`README`, `CHANGELOG`, `LICENSE`, files in `docs/`, `tests/`, `assets/`, …) are filtered out automatically.
+
+To index a folder that isn't a configured source:
+
+```bash
+pg add-dir /path/to/skills      # registers it + indexes recursively
+pg status                       # confirm it shows up with the right count
+```
+
+---
+
+## Data & config location
+
+PromptGraph stores its config, SQLite DB, and ANN index in:
+
+- `~/.promptgraph/` — fresh installs on any platform
+- `~/.claude/.promptgraph/` — kept for existing Claude Code installs (not migrated, so the index isn't orphaned)
+
+Your **skill files** stay wherever you put them (the platform skills dir or any `add-dir` folder) — only the derived index lives here.
+
+---
+
 ## OpenCode — `/pg` slash commands
 
 After `pg setup opencode`, two slash commands are available inside OpenCode:
@@ -135,12 +174,12 @@ The registry bot reads the submitted JSON and publishes within minutes.
 
 ## Skill bundles with tools
 
-A bundle can ship both skill files (`.md`) and tool scripts (`.py`, `.sh`, `.js`, etc.). When installed:
+A bundle can ship both skill files (`.md`) and tool scripts (`.py`, `.sh`, `.bash`, `.js`, `.ts`, `.rb`). When installed:
 - All `.md` files go to the skills directory
-- Script files are placed alongside them
+- Script files are cloned alongside them (sparse-checkout fetches them with the skills)
 - On Linux/macOS scripts are made executable (`chmod +x`)
 
-Bundle authors: set `has_tools: true` and include `tool_files` entries in your bundle manifest.
+For **repo bundles** (`pg bundle add-repo <owner/repo>`), scripts are detected automatically — `has_tools` and the 🔧 badge are set from the real files in the repo, no manifest needed. For **skill-list bundles**, list scripts explicitly in `tool_files`.
 
 ---
 
@@ -156,6 +195,12 @@ Bundle authors: set `has_tools: true` and include `tool_files` entries in your b
 ---
 
 ## Troubleshooting
+
+**Only some of my skills got indexed:**
+Check `pg status` for the `Found N files` count. If it's lower than expected:
+- The skills live outside a registered source → `pg add-dir <that-folder>`.
+- Generic `SKILL.md` files used to collide on name (fixed) — make sure you're on the latest version (`pg update`).
+- Files named like docs (`README`, `01-intro`, …) or under `docs/`/`tests/` are filtered by design.
 
 **Marketplace shows no bundles:**
 ```bash

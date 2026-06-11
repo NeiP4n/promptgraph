@@ -30,6 +30,43 @@ describe('parseSkillFile', () => {
     expect(s.name).toBe('fallback');
   });
 
+  it('derives name from parent folder for generic SKILL.md', () => {
+    const dir = path.join(tmp, 'agent-platform-deploy');
+    fs.mkdirSync(dir, { recursive: true });
+    const fp = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(fp, '# Deploy\nDeploy the agent platform.');
+    const s = parseSkillFile(fp, 'test');
+    expect(s.name).toBe('agent-platform-deploy');
+  });
+
+  it('keeps distinct names for SKILL.md in different folders (no collision)', () => {
+    const a = path.join(tmp, 'cloud-deploy');
+    const b = path.join(tmp, 'cloud-infra');
+    fs.mkdirSync(a, { recursive: true });
+    fs.mkdirSync(b, { recursive: true });
+    fs.writeFileSync(path.join(a, 'SKILL.md'), '# A\nbody');
+    fs.writeFileSync(path.join(b, 'SKILL.md'), '# B\nbody');
+    expect(parseSkillFile(path.join(a, 'SKILL.md'), 'test').name).toBe('cloud-deploy');
+    expect(parseSkillFile(path.join(b, 'SKILL.md'), 'test').name).toBe('cloud-infra');
+  });
+
+  it('derives name from folder for index.md / agent.md too', () => {
+    const dir = path.join(tmp, 'my-thing');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'index.md'), '# x\nbody');
+    fs.writeFileSync(path.join(dir, 'agent.md'), '# y\nbody');
+    expect(parseSkillFile(path.join(dir, 'index.md'), 'test').name).toBe('my-thing');
+    expect(parseSkillFile(path.join(dir, 'agent.md'), 'test').name).toBe('my-thing');
+  });
+
+  it('frontmatter name still wins over folder name', () => {
+    const dir = path.join(tmp, 'folder-name');
+    fs.mkdirSync(dir, { recursive: true });
+    const fp = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(fp, '---\nname: explicit-name\ndescription: d\n---\nbody');
+    expect(parseSkillFile(fp, 'test').name).toBe('explicit-name');
+  });
+
   it('extracts skill references but not URLs', () => {
     const fp = write('refs.md', '---\nname: x\ndescription: y\n---\nUse /other-skill here. Visit https://example.com/path now.');
     const s = parseSkillFile(fp, 'test');
@@ -63,5 +100,25 @@ describe('isSkillFile', () => {
   it('rejects badge-only content', () => {
     const fp = write('badge-file.md', '[![Build](https://img.shields.io/badge/build-passing-green)]\n\nContent.');
     expect(isSkillFile(fp)).toBe(false);
+  });
+
+  it('skips files inside docs/ and tests/ dirs', () => {
+    expect(isSkillFile('/repo/docs/guide.md', 'content')).toBe(false);
+    expect(isSkillFile('/repo/tests/case.md', 'content')).toBe(false);
+    expect(isSkillFile('/repo/.github/workflows/ci.md', 'content')).toBe(false);
+  });
+
+  it('allows GitHub Copilot skill dirs under .github', () => {
+    const raw = '# Skill\n\nReal instructions.\n\n- step';
+    expect(isSkillFile('/repo/.github/skills/my-skill/SKILL.md', raw)).toBe(true);
+    expect(isSkillFile('/repo/.github/prompts/p.md', raw)).toBe(true);
+    expect(isSkillFile('/repo/.github/agents/a.md', raw)).toBe(true);
+    expect(isSkillFile('/repo/.github/commands/c.md', raw)).toBe(true);
+  });
+
+  it('still skips non-skill .github subdirs', () => {
+    const raw = '# x\n\ncontent';
+    expect(isSkillFile('/repo/.github/plugins/big.md', raw)).toBe(false);
+    expect(isSkillFile('/repo/.github/ISSUE_TEMPLATE/bug.md', raw)).toBe(false);
   });
 });
