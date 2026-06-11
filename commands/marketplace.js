@@ -42,6 +42,7 @@ export default async function handler(args, bin) {
   const { getCachedCount, setCachedCount, refreshCountsInBackground } = await import('../bundle-counts.js');
   const { SKILLS_STORE_DIR } = await import('../config.js');
   const { globSync } = await import('glob');
+  const { SCRIPT_GLOBS } = await import('../github-import.js');
   const githubDir = path.join(SKILLS_STORE_DIR, 'github');
 
   // For each bundle: if installed on disk — use real file count + detect scripts; otherwise use cache
@@ -51,14 +52,14 @@ export default async function handler(args, bin) {
     const repo  = b.repo_url.split('/')[1];
     const clonedDir = path.join(githubDir, `${owner}-${repo}`);
     if (fs.existsSync(clonedDir) && fs.readdirSync(clonedDir).length > 0) {
-      const realCount = globSync(`${clonedDir}/**/*.md`).length;
-      const hasScripts = globSync(`${clonedDir}/**/*.{py,sh,bash,js,ts,rb}`).length > 0;
+      const realCount = globSync(`${clonedDir}/**/*.md`, { absolute: true }).length;
+      const hasScripts = globSync(SCRIPT_GLOBS.map(p => `${clonedDir}/${p}`), { absolute: true }).length > 0;
       setCachedCount(b.repo_url, realCount);
       return { ...b, skillCount: realCount, has_tools: b.has_tools || hasScripts };
     }
     const cached = getCachedCount(b.repo_url);
     const knownCount = cached ?? b.skill_count ?? null;
-    return knownCount !== null ? { ...b, skillCount: knownCount } : b;
+    return knownCount !== null ? { ...b, skillCount: knownCount, has_tools: b.has_tools } : b;
   });
   refreshCountsInBackground(bundlesWithCounts);
 

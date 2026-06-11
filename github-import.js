@@ -14,6 +14,10 @@ const downloadRateLimiter = new RateLimiter({ maxRequests: RATE_LIMIT_REQUESTS *
 
 const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', 'slash-commands', 'custom-commands', 'templates'];
 
+// glob v13 brace-expansion ({py,sh,...}) returns nothing on Windows — use an
+// array of explicit patterns instead so script detection works cross-platform.
+export const SCRIPT_GLOBS = ['**/*.py', '**/*.sh', '**/*.bash', '**/*.js', '**/*.ts', '**/*.rb'];
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 const repoStats = new Map()
@@ -768,26 +772,25 @@ function detectSubdirFromTree(repoRoot) {
 
 // ── light version (git sparse-checkout, no API rate limits) ───────────────────
 
-export async function importFromGitHubLight(repoUrl) {
-  if (!repoUrl) throw new Error('Missing repoUrl');
-
-  const url = repoUrl.startsWith('http') ? repoUrl : `https://github.com/${repoUrl}`;
-  const ownerRepo = url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
-  const repoName = ownerRepo.replace('/', '-');
-  const destBase = path.join(getSkillsStoreDir(), 'github', repoName);
+// Core clone + filter pipeline. Single source of truth for both real installs
+// and offline validation. Materializes the skills subdir into destBase, applies
+// isSkillFile + validateSkill filters, and returns the ground-truth result.
+// NO side effects (no config write, no indexing) — caller decides what to do.
+// Throws 'No valid skills...' if nothing survives filtering.
+export function cloneAndFilterRepo(ownerRepo, destBase, prog = () => {}) {
   const cloneUrl = `https://github.com/${ownerRepo}.git`;
-
   if (fs.existsSync(destBase)) fs.rmSync(destBase, { recursive: true, force: true });
   fs.mkdirSync(destBase, { recursive: true });
 
   const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  const prog = (msg) => process.stderr.write(`\r\x1b[K  ${msg}`);
+  // core.longpaths=true — required on Windows for repos with deep nested paths
+  // (>260 chars) that otherwise fail checkout with "UNKNOWN: open" / "Checkout failed".
+  const LP = ['-c', 'core.longpaths=true'];
 
   // Step 1: treeless clone — gets file tree instantly, no blob download, no API
   prog(`Cloning ${ownerRepo}...`);
-  const init = spawnSync('git', ['clone', '--depth=1', '--filter=blob:none', '--no-checkout', '--progress', cloneUrl, destBase], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
+  const init = spawnSync('git', [...LP, 'clone', '--depth=1', '--filter=blob:none', '--no-checkout', '--progress', cloneUrl, destBase], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
   if (init.status !== 0) {
-    process.stderr.write('\n');
     fs.rmSync(destBase, { recursive: true, force: true });
     throw new Error(`Failed to clone ${ownerRepo}: ${(init.stderr?.toString() || '').trim().slice(0, 120)}`);
   }
@@ -798,15 +801,15 @@ export async function importFromGitHubLight(repoUrl) {
 
   // Step 3: sparse-checkout skills subdir — .md files + scripts (.py/.sh/.js/.ts/.rb/.bash)
   prog(`Setting up sparse checkout${subdir ? ` (${subdir}/)` : ''}...`);
-  spawnSync('git', ['-C', destBase, 'sparse-checkout', 'init'], { stdio: 'pipe', env: gitEnv });
+  spawnSync('git', [...LP, '-C', destBase, 'sparse-checkout', 'init'], { stdio: 'pipe', env: gitEnv });
   if (subdir) {
-    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone',
+    spawnSync('git', [...LP, '-C', destBase, 'sparse-checkout', 'set', '--no-cone',
       `${subdir}/*.md`, `${subdir}/**/*.md`,
       `${subdir}/**/*.py`, `${subdir}/**/*.sh`, `${subdir}/**/*.js`,
       `${subdir}/**/*.ts`, `${subdir}/**/*.rb`, `${subdir}/**/*.bash`,
     ], { stdio: 'pipe', env: gitEnv });
   } else {
-    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone',
+    spawnSync('git', [...LP, '-C', destBase, 'sparse-checkout', 'set', '--no-cone',
       '*.md', '**/*.md',
       '**/*.py', '**/*.sh', '**/*.js', '**/*.ts', '**/*.rb', '**/*.bash',
     ], { stdio: 'pipe', env: gitEnv });
@@ -814,26 +817,29 @@ export async function importFromGitHubLight(repoUrl) {
 
   // Step 4: checkout to materialize only the selected files
   prog(`Downloading .md files...`);
-  const co = spawnSync('git', ['-C', destBase, 'checkout'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
+  const co = spawnSync('git', [...LP, '-C', destBase, 'checkout'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
   if (co.status !== 0) {
-    process.stderr.write('\n');
     fs.rmSync(destBase, { recursive: true, force: true });
     throw new Error(`Checkout failed for ${ownerRepo}`);
   }
   // Force blob materialization (needed for partial clones on Windows)
-  spawnSync('git', ['-C', destBase, 'checkout', 'HEAD', '--', '.'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
-  process.stderr.write('\n');
+  spawnSync('git', [...LP, '-C', destBase, 'checkout', 'HEAD', '--', '.'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
 
   // Make scripts executable on unix
   if (process.platform !== 'win32') {
     try {
-      const scripts = globSync(`${destBase}/**/*.{py,sh,bash,js,ts,rb}`, { absolute: true });
+      const scripts = globSync(SCRIPT_GLOBS.map(p => `${destBase}/${p}`), { absolute: true });
       for (const s of scripts) { try { fs.chmodSync(s, 0o755); } catch {} }
     } catch {}
   }
 
+  // hasScripts = real scripts on disk in the materialized subdir (ground truth)
+  const hasScripts = globSync(SCRIPT_GLOBS.map(p => `${destBase}/${p}`), { absolute: true }).length > 0;
+
   // Step 5: filter out non-skill files locally
-  const allMd = globSync(`${destBase}/**/*.md`);
+  // absolute:true — otherwise glob returns cwd-relative paths; when destBase is not
+  // under cwd those contain ".." and validateSkill flags every file as path-traversal.
+  const allMd = globSync(`${destBase}/**/*.md`, { absolute: true });
   prog(`Filtering ${allMd.length} files...`);
   let removed = 0;
   for (const fp of allMd) {
@@ -841,7 +847,7 @@ export async function importFromGitHubLight(repoUrl) {
   }
   if (removed > 0) removeEmptyDirs(destBase);
 
-  const remaining = globSync(`${destBase}/**/*.md`);
+  const remaining = globSync(`${destBase}/**/*.md`, { absolute: true });
   prog(`Validating ${remaining.length} skill files...`);
   let removedV = 0;
   for (const fp of remaining) {
@@ -850,14 +856,28 @@ export async function importFromGitHubLight(repoUrl) {
   }
   if (removedV > 0) removeEmptyDirs(destBase);
 
-  process.stderr.write('\n');
-
-  const realCount = globSync(`${destBase}/**/*.md`).length;
+  const realCount = globSync(`${destBase}/**/*.md`, { absolute: true }).length;
 
   if (realCount < 1) {
     fs.rmSync(destBase, { recursive: true, force: true });
     throw new Error('No valid skills in repo — all files were filtered out');
   }
+
+  return { realCount, hasScripts, subdir };
+}
+
+export async function importFromGitHubLight(repoUrl) {
+  if (!repoUrl) throw new Error('Missing repoUrl');
+
+  const url = repoUrl.startsWith('http') ? repoUrl : `https://github.com/${repoUrl}`;
+  const ownerRepo = url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+  const repoName = ownerRepo.replace('/', '-');
+  const destBase = path.join(getSkillsStoreDir(), 'github', repoName);
+
+  const prog = (msg) => process.stderr.write(`\r\x1b[K  ${msg}`);
+
+  const { realCount, subdir } = cloneAndFilterRepo(ownerRepo, destBase, prog);
+  process.stderr.write('\n');
 
   // Update both caches with the real post-filter count
   try {
