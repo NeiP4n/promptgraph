@@ -44,7 +44,7 @@ export default async function handler(args, bin) {
   const { globSync } = await import('glob');
   const githubDir = path.join(SKILLS_STORE_DIR, 'github');
 
-  // For each bundle: if installed on disk — use real file count; otherwise use cache
+  // For each bundle: if installed on disk — use real file count + detect scripts; otherwise use cache
   const bundlesWithCounts = (Array.isArray(bundles) ? bundles : []).map(b => {
     if (!b.repo_url) return b;
     const owner = b.repo_url.split('/')[0];
@@ -52,8 +52,9 @@ export default async function handler(args, bin) {
     const clonedDir = path.join(githubDir, `${owner}-${repo}`);
     if (fs.existsSync(clonedDir) && fs.readdirSync(clonedDir).length > 0) {
       const realCount = globSync(`${clonedDir}/**/*.md`).length;
+      const hasScripts = globSync(`${clonedDir}/**/*.{py,sh,bash,js,ts,rb}`).length > 0;
       setCachedCount(b.repo_url, realCount);
-      return { ...b, skillCount: realCount };
+      return { ...b, skillCount: realCount, has_tools: b.has_tools || hasScripts };
     }
     const cached = getCachedCount(b.repo_url);
     return cached !== null ? { ...b, skillCount: cached } : b;

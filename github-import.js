@@ -57,10 +57,20 @@ function streamDownload(url, maxSize = MAX_DOWNLOAD_SIZE, redirects = 0) {
   })
 }
 
+function getGhToken() {
+  const envToken = process.env.GITHUB_TOKEN;
+  if (envToken) return envToken;
+  try {
+    const r = spawnSync('gh', ['auth', 'token'], { encoding: 'utf8', timeout: 5000 });
+    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+  } catch {}
+  return null;
+}
+
 async function httpsGet(url, redirects = 0) {
   if (redirects > 5) return Promise.reject(new Error('Too many redirects'))
   await githubRateLimiter.acquire()
-  const token = process.env.GITHUB_TOKEN;
+  const token = getGhToken();
   const headers = { 'User-Agent': 'promptgraph-mcp' };
   if (token && url.startsWith('https://api.github.com/')) headers['Authorization'] = `Bearer ${token}`;
   return new Promise((res, rej) => {
@@ -228,8 +238,12 @@ async function detectSkillsDirFromAPI(ownerRepo) {
     }
     if (best) return { subdir: best, label: best };
 
+    // 3. Root-level .md files (no subdirectory, skills live at repo root)
+    const rootMd = entries.filter(e => e.type === 'file' && e.name.endsWith('.md') && !SKIP_RE.test(e.name.replace(/\.md$/i, '').toLowerCase()));
+    if (rootMd.length >= 1) return { subdir: null, label: 'root' };
+
   } catch {}
-  return null; // no good subdir found — use root
+  return null; // repo not found or inaccessible
 }
 
 const SKIP_DIRS_API = new Set([
@@ -273,6 +287,9 @@ function sparseClone(url, dest, subdir) {
   return false;
 }
 
+// Script extensions to preserve during cleanup (sparse-checkout fetches them alongside .md)
+const SCRIPT_EXTS = new Set(['.py', '.sh', '.bash', '.js', '.ts', '.rb']);
+
 // Shared skip patterns — module scope so both cleanup functions can access them
 const SKIP_RE = /^(readme|changelog|license|contributing|code.of.conduct|security|authors|credits|install|installation|usage|promotion|faq|glossary|index|overview|summary|roadmap|todo|notes|template|example|sample|demo|guide|tutorial|walkthrough|architecture|design|spec|requirements|privacy|terms|disclaimer|notice|copying|warranty|funding|claude|bugs?\b|feature.?request)/i;
 const SKIP_DIRS_LOCAL = new Set([
@@ -306,7 +323,8 @@ function cleanupRepoRoot(repoRoot) {
         removed++;
       }
     } else if (entry.isFile() && !entry.name.endsWith('.md')) {
-      if (entry.name !== '.gitignore') {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (entry.name !== '.gitignore' && !SCRIPT_EXTS.has(ext)) {
         try { fs.unlinkSync(fullPath); removed++; } catch {}
       }
     }
@@ -337,7 +355,8 @@ function cleanupRepoDir(dirPath, SKIP_RE) {
         removed++;
       }
     } else if (entry.isFile() && !entry.name.endsWith('.md')) {
-      try { fs.unlinkSync(fullPath); removed++; } catch {}
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!SCRIPT_EXTS.has(ext)) { try { fs.unlinkSync(fullPath); removed++; } catch {} }
     }
   }
   return removed;
@@ -714,13 +733,20 @@ export async function importFromGitHubLight(repoUrl) {
   prog(`Detecting skill directory...`);
   const subdir = detectSubdirFromTree(destBase);
 
-  // Step 3: sparse-checkout only the skills subdir .md files
+  // Step 3: sparse-checkout skills subdir — .md files + scripts (.py/.sh/.js/.ts/.rb/.bash)
   prog(`Setting up sparse checkout${subdir ? ` (${subdir}/)` : ''}...`);
   spawnSync('git', ['-C', destBase, 'sparse-checkout', 'init'], { stdio: 'pipe', env: gitEnv });
   if (subdir) {
-    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone', `${subdir}/*.md`, `${subdir}/**/*.md`], { stdio: 'pipe', env: gitEnv });
+    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone',
+      `${subdir}/*.md`, `${subdir}/**/*.md`,
+      `${subdir}/**/*.py`, `${subdir}/**/*.sh`, `${subdir}/**/*.js`,
+      `${subdir}/**/*.ts`, `${subdir}/**/*.rb`, `${subdir}/**/*.bash`,
+    ], { stdio: 'pipe', env: gitEnv });
   } else {
-    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone', '*.md', '**/*.md'], { stdio: 'pipe', env: gitEnv });
+    spawnSync('git', ['-C', destBase, 'sparse-checkout', 'set', '--no-cone',
+      '*.md', '**/*.md',
+      '**/*.py', '**/*.sh', '**/*.js', '**/*.ts', '**/*.rb', '**/*.bash',
+    ], { stdio: 'pipe', env: gitEnv });
   }
 
   // Step 4: checkout to materialize only the selected files
@@ -734,6 +760,14 @@ export async function importFromGitHubLight(repoUrl) {
   // Force blob materialization (needed for partial clones on Windows)
   spawnSync('git', ['-C', destBase, 'checkout', 'HEAD', '--', '.'], { stdio: 'pipe', env: gitEnv, timeout: 120000 });
   process.stderr.write('\n');
+
+  // Make scripts executable on unix
+  if (process.platform !== 'win32') {
+    try {
+      const scripts = globSync(`${destBase}/**/*.{py,sh,bash,js,ts,rb}`, { absolute: true });
+      for (const s of scripts) { try { fs.chmodSync(s, 0o755); } catch {} }
+    } catch {}
+  }
 
   // Step 5: filter out non-skill files locally
   const allMd = globSync(`${destBase}/**/*.md`);

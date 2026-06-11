@@ -280,9 +280,9 @@ async function countRepoSkills(repoUrl) {
 }
 
 // Count real .md files on disk for an installed bundle (always correct)
-function localSkillCount(repoUrl) {
+export function localSkillCount(repoUrl) {
   const repoName = repoUrl.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace('/', '-');
-  const dest = path.join(SKILLS_STORE_DIR, 'github', repoName);
+  const dest = path.join(getSkillsStoreDir(), 'github', repoName);
   if (!fs.existsSync(dest)) return null;
   const files = globSync(`${dest}/**/*.md`);
   return files.length;
@@ -510,6 +510,25 @@ export async function installBundleBg(bundleId, onDone) {
   return { queued: true, id: bundle.id, name: bundle.name };
 }
 
+// Publishing to the marketplace requires an authenticated GitHub CLI account.
+// `gh auth status` exits 0 only when a user is logged in; ENOENT means gh is
+// not installed. Returns { ok: true } or { ok: false, error } with guidance.
+export function requireGhAuth() {
+  let res;
+  try {
+    res = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 10000 });
+  } catch {
+    res = { error: { code: 'ENOENT' } };
+  }
+  if (res.error?.code === 'ENOENT') {
+    return { ok: false, error: 'Publishing requires the GitHub CLI. Install it from https://cli.github.com, then run: gh auth login' };
+  }
+  if (res.status !== 0) {
+    return { ok: false, error: 'Publishing requires a signed-in GitHub account. Run: gh auth login' };
+  }
+  return { ok: true };
+}
+
 function ghPublish(filePath, desc) {
   try {
     const result = spawnSync('gh', ['gist', 'create', filePath, '--desc', desc, '--public'], { encoding: 'utf8' });
@@ -521,7 +540,22 @@ function ghPublish(filePath, desc) {
   }
 }
 
-const REGISTRY_ISSUES = 'https://github.com/NeiP4n/promptgraph-registry/issues/new';
+const REGISTRY_REPO = 'NeiP4n/promptgraph-registry';
+const REGISTRY_ISSUES = `https://github.com/${REGISTRY_REPO}/issues/new`;
+
+// Open the registry submission issue automatically via the authenticated gh CLI.
+// Removes the manual "open browser → paste → submit" step. `gh issue create`
+// prints the new issue URL to stdout. Returns { ok, url } or { ok:false, error }.
+function ghCreateIssue(title, body) {
+  try {
+    const r = spawnSync('gh', ['issue', 'create', '--repo', REGISTRY_REPO, '--title', title, '--body', body], { encoding: 'utf8', timeout: 20000 });
+    if (r.error?.code === 'ENOENT') return { ok: false, no_gh: true };
+    if (r.status !== 0) return { ok: false, error: r.stderr?.trim() || 'gh issue create failed' };
+    return { ok: true, url: r.stdout.trim() };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
 
 export async function publishSkill(filePath) {
   if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
@@ -531,25 +565,21 @@ export async function publishSkill(filePath) {
     return { error: 'Validation failed', issues: validation.errors, warnings: validation.warnings };
   }
 
+  const auth = requireGhAuth();
+  if (!auth.ok) return { error: auth.error };
+
   const name = path.basename(filePath, '.md');
   const gh = ghPublish(filePath, `PromptGraph skill: ${name}`);
 
-  if (gh.no_gh) {
-    const content = fs.readFileSync(filePath, 'utf8');
-    return {
-      success: true,
-      gh_not_installed: true,
-      instructions: [
-        '1. Install gh CLI: https://cli.github.com',
-        '   OR manually create a public Gist at https://gist.github.com with the file content',
-        `2. Submit to registry: ${REGISTRY_ISSUES}`,
-        `3. Paste the Gist URL in the issue`,
-      ].join('\n'),
-      file_content: content,
-    };
-  }
+  if (gh.no_gh) return { error: 'GitHub CLI became unavailable. Install it from https://cli.github.com and run: gh auth login' };
   if (!gh.ok) return { error: gh.error };
-  return { success: true, url: gh.url, message: `Published! Submit to registry: ${REGISTRY_ISSUES}` };
+
+  // Auto-submit the registry issue — no manual step needed.
+  const issue = ghCreateIssue(`Skill: ${name}`, `Skill submission (gist): ${gh.url}`);
+  if (!issue.ok) {
+    return { success: true, gist_url: gh.url, submitted: false, submit_url: REGISTRY_ISSUES, message: `Gist published (${gh.url}) but auto-submit failed: ${issue.error || 'gh unavailable'}. Submit manually: ${REGISTRY_ISSUES}` };
+  }
+  return { success: true, gist_url: gh.url, submitted: true, issue_url: issue.url, message: `Published & submitted: ${issue.url}` };
 }
 
 export async function publishBundle(bundleDef) {
@@ -567,6 +597,9 @@ export async function publishBundle(bundleDef) {
     return { error: 'Bundle validation failed', issues: validation.errors, warnings: validation.warnings };
   }
 
+  const auth = requireGhAuth();
+  if (!auth.ok) return { error: auth.error };
+
   // Best-effort repo validation (client-side). GitHub Actions is the source of truth.
   let repoWarnings = [];
   if (def.repo_url) {
@@ -582,38 +615,23 @@ export async function publishBundle(bundleDef) {
   }
 
   const bundleJson = JSON.stringify(def, null, 2);
-  const tmpFile = path.join(PROMPTGRAPH_DIR, `bundle-${def.id}.json`);
-  fs.mkdirSync(PROMPTGRAPH_DIR, { recursive: true });
-  fs.writeFileSync(tmpFile, bundleJson);
 
-  const gh = ghPublish(tmpFile, `PromptGraph bundle: ${def.name}`);
-  try { fs.unlinkSync(tmpFile); } catch {}
+  // Auto-submit: create the registry issue directly with the bundle JSON inline
+  // (the format the registry bot parses) — no manual browser/paste step.
+  const body = [
+    'Bundle definition:',
+    '',
+    '```json',
+    bundleJson,
+    '```',
+    ...(def.repo_url ? ['', 'Repo will be validated by CI (GitHub Actions) on submission.'] : []),
+    ...(repoWarnings.length ? ['', '⚠ Client-side repo warnings (CI re-checks):', ...repoWarnings.map(w => `- ${w}`)] : []),
+  ].join('\n');
 
-  if (gh.no_gh) {
-    const compactJson = JSON.stringify(def);
-    const issueUrl = `${REGISTRY_ISSUES}?title=Bundle%3A+${encodeURIComponent(def.name)}&body=${encodeURIComponent('Bundle definition:\n\n```json\n' + compactJson + '\n```')}`;
-    const actionNote = def.repo_url ? `\n\nNote: Your repo will be validated by CI (GitHub Actions) after submission.\nRun locally: node validate-repo-action.js ${def.repo_url}` : '';
-    return {
-      success: true,
-      gh_not_installed: true,
-      instructions: [
-        `👉 Open this link and click "Submit new issue" (JSON is already filled in):`,
-        `   ${issueUrl}`,
-        '',
-        '   OR install gh CLI for one-command submit: https://cli.github.com',
-        ...(repoWarnings.length ? ['', '⚠ Repo warnings (CI will re-check):', ...repoWarnings.map(w => '   - ' + w)] : []),
-        ...(def.repo_url ? ['', 'Your repo will be validated by CI when submitted.'] : []),
-      ].join('\n'),
-      bundle_json: bundleJson,
-      submit_url: issueUrl,
-    };
-  }
-  if (!gh.ok) return { error: gh.error };
-  const issueUrl = `${REGISTRY_ISSUES}?title=Bundle%3A+${encodeURIComponent(def.name)}&body=Gist%3A+${encodeURIComponent(gh.url)}`;
-  const msg = def.repo_url
-    ? `Bundle published! Submit: ${issueUrl}\n\nRepo will be validated by CI. Run: node validate-repo-action.js ${def.repo_url}`
-    : `Bundle published! Submit: ${issueUrl}`;
-  return { success: true, gist_url: gh.url, submit_url: issueUrl, message: msg };
+  const issue = ghCreateIssue(`Bundle: ${def.name}`, body);
+  if (issue.no_gh) return { error: 'GitHub CLI became unavailable. Install it from https://cli.github.com and run: gh auth login' };
+  if (!issue.ok) return { error: `Auto-submit failed: ${issue.error}` };
+  return { success: true, submitted: true, issue_url: issue.url, message: `Bundle submitted: ${issue.url}`, warnings: repoWarnings };
 }
 
 export function getTopRated(topK = 10) {

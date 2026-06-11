@@ -9,6 +9,18 @@ Instead of loading every `.md` skill into context, Claude calls `pg_search` and 
 
 ---
 
+## Features
+
+- **Semantic search** — BGE-Small-EN embeddings, local, no API key required
+- **Token savings** — loads one skill on demand instead of all `.md` files (~20k+ tokens/session)
+- **Fast reindex** — persistent embed cache makes re-indexing unchanged skills near-instant
+- **Low RAM** — first index uses ~0.85 GB (vs 5+ GB in older versions)
+- **Marketplace** — browse and install community skill bundles via TUI or MCP tools
+- **Publishing** — publish skills/bundles to the registry hands-off via GitHub CLI
+- **Multi-platform** — Claude Code, OpenCode, Claude Desktop, Cursor, Windsurf, Cline, Codex
+
+---
+
 ## Install
 
 ```bash
@@ -50,16 +62,26 @@ Then restart your editor — the `promptgraph` MCP server will be available.
 ## CLI commands
 
 ```bash
-pg setup <platform>     # Setup MCP config + skills dir for a platform
-pg search <query>       # Semantic search across your skills
-pg list                 # List all indexed skills
-pg add <file>           # Add a skill file and index it
-pg reindex              # Re-index all skills (with progress bar + ETA)
-pg marketplace          # Browse community skill bundles (TUI)
-pg install <id>         # Install a skill or bundle by ID
-pg doctor               # Check database integrity
-pg doctor --reset-dead  # Restore bundles hidden after install errors
-pg update               # Update promptgraph-mcp to latest version
+# Setup & maintenance
+pg setup <platform>             # Setup MCP config + skills dir for a platform
+pg reindex                      # Re-index all skills (progress bar + ETA)
+pg status                       # Show index health: sources, skill counts, DB path
+pg doctor                       # Check database integrity
+pg doctor --reset-dead          # Restore bundles hidden after install errors
+pg update                       # Update promptgraph-mcp to latest version
+
+# Search & discovery
+pg search <query>               # Semantic search across your skills
+pg marketplace                  # Browse community skill bundles (TUI)
+
+# Install
+pg install <id>                 # Install a skill by marketplace ID (pg-xxxxxx)
+pg import <github-url>          # Import skills directly from a GitHub repo URL
+
+# Bundles
+pg bundle install <id>          # Install a bundle by ID
+pg bundle update [repo]         # Pull latest from installed GitHub bundles
+pg bundle add-repo <owner/repo> # Publish your GitHub repo to the registry (requires gh)
 ```
 
 ---
@@ -80,11 +102,33 @@ These are MCP prompts, not tools — they appear in the `/` command palette.
 Browse and install community skill bundles:
 
 ```bash
-pg marketplace          # Interactive TUI browser
-pg install pg-xxxxxx    # Install by bundle ID
+pg marketplace              # Interactive TUI browser
+pg install pg-xxxxxx        # Install by bundle ID
+pg bundle install pg-xxxxxx # Same, explicit subcommand form
 ```
 
 Bundles marked with 🔧 include tool scripts (`.py`, `.sh`, `.js`) alongside `.md` skill files. Scripts are installed to the platform's skills directory and made executable automatically.
+
+---
+
+## Publishing
+
+Publishing to the registry requires the [GitHub CLI](https://cli.github.com) signed in:
+
+```bash
+gh auth login               # one-time setup
+```
+
+**Publish your own skill:**
+Use the `pg_marketplace_publish` MCP tool from inside Claude. It creates a Gist and automatically files a registry issue — no browser step, no paste.
+
+**Publish a GitHub repo as a bundle:**
+```bash
+pg bundle add-repo <owner/repo>       # auto-submits registry issue
+pg bundle add-repo <owner/repo> --push # same, with git push to the repo first
+```
+
+The registry bot reads the submitted JSON and publishes within minutes.
 
 ---
 
@@ -106,6 +150,8 @@ Bundle authors: set `has_tools: true` and include `tool_files` entries in your b
 3. When Claude calls `pg_search("refactor without breaking tests")`, only the matching skill is loaded into context
 4. Skills are scored — `pg_top_rated` returns the best-performing ones
 
+**Memory usage**: The first index uses ~0.85 GB RAM (batch=16 default). Override with `PG_EMBED_BATCH` if needed. Subsequent reindexes of unchanged content are near-instant thanks to a persistent embed cache.
+
 ---
 
 ## Troubleshooting
@@ -124,9 +170,19 @@ Close any terminals running `pg` commands, then run `pg update` again.
 **OpenCode not seeing MCP:**
 Run `pg setup opencode` — it writes the correct `{ "type": "local", "command": ["cmd", "/c", "npx", "promptgraph-mcp"] }` entry to `~/.config/opencode/opencode.json`.
 
+**Publishing fails with "gh auth":**
+Install the [GitHub CLI](https://cli.github.com) and run `gh auth login`.
+
 ---
 
 ## Requirements
 
 - Node.js ≥ 18
 - ~45 MB disk for the embedding model (downloaded on first use)
+- [GitHub CLI](https://cli.github.com) — only needed for publishing to the marketplace
+
+---
+
+## License
+
+MIT

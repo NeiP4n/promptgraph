@@ -63,15 +63,15 @@ ${body}`);
     expect(r.errors.some(e => /large/i.test(e))).toBe(true);
   });
 
-  it('rejects invalid name format', () => {
+  it('warns on invalid name format but still passes (name derived from filename)', () => {
     const fp = write('badname.md', `---
 name: Bad_Name!
 description: has uppercase and underscore in name
 ---
 ${VALID_BODY}`);
     const r = validateSkill(fp);
-    expect(r.ok).toBe(false);
-    expect(r.errors.some(e => /name/i.test(e))).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => /name/i.test(w))).toBe(true);
   });
 
   it('warns on missing description (derives from content)', () => {

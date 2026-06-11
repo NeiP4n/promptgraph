@@ -56,7 +56,7 @@ export function validateSkill(filePath) {
   } else if (typeof data.name !== 'string') {
     errors.push('Field "name" must be a string');
   } else if (!NAME_RE.test(data.name)) {
-    errors.push(`Invalid name "${data.name}". Use lowercase, digits, hyphens (2-64 chars).`);
+    warnings.push(`Invalid name "${data.name}" — will be derived from filename instead.`);
   }
 
   // description — derive from first paragraph if missing

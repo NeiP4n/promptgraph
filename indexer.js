@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { parseSkillFile, isSkillFile, filterWithClassifier } from './parser.js';
-import { embedBatch, cosineSimilarity } from './embedder.js';
+import { embedBatch, cosineSimilarity, freeModel } from './embedder.js';
 import { BATCH_SIZE } from './config.js';
 import { getDb, skillId, vecToBlob } from './db.js';
 import { loadConfig } from './config.js';
@@ -257,6 +257,7 @@ export async function indexAll({ fast = false } = {}) {
   progress(total, total, { skipped, errors });
   progressDone();
   if (!fast) {
+    freeModel(); // release the embedding model's arena before the ANN build
     const spin = spinner('Building ANN index...');
     spin.start();
     await buildAnnIndex();

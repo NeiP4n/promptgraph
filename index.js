@@ -211,7 +211,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'pg_marketplace_publish',
-      description: 'Publish a local skill file to the marketplace via GitHub Gist.',
+      description: 'Publish a local skill file to the marketplace. Requires an authenticated GitHub CLI (gh auth login); creates a Gist and auto-submits the registry issue — no manual step.',
       inputSchema: {
         type: 'object',
         properties: { file_path: { type: 'string' } },
@@ -256,7 +256,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'pg_bundle_publish',
-      description: 'Publish a bundle definition to GitHub Gist and get a registry submission link. Pass a JSON object or path to a .json file.',
+      description: 'Publish a bundle definition to the marketplace. Requires an authenticated GitHub CLI (gh auth login); auto-submits the registry issue with the bundle JSON — no manual step. Pass a JSON object or path to a .json file.',
       inputSchema: {
         type: 'object',
         properties: {

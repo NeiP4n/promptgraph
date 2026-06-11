@@ -60,6 +60,13 @@
 
 ## Known Bugs (Current Issues to Fix)
 
+### 0. **Marketplace bundles broken** (CRITICAL) ✅ FIXED
+- **Status**: ✅ RESOLVED (2026-06-11)
+- **Severity**: Was Critical (bundle listing + repo install dead)
+- **Location**: `marketplace.js` → `localSkillCount()`
+- **Problem**: Referenced `SKILLS_STORE_DIR` which was never imported → `ReferenceError`. `browseBundles()` caught it and returned `Registry unavailable`; `_execRepoInstall()` reported failure after a successful clone.
+- **Fix Applied**: Resolve dir via `getSkillsStoreDir()`; exported `localSkillCount` + added 3 regression tests.
+
 ### 1. **TAR Module Export Error** (CRITICAL) ✅ FIXED
 - **Status**: ✅ RESOLVED
 - **Severity**: Was Critical (prevented test suite)
@@ -103,10 +110,9 @@
   - **Idea**: Use Worker threads or Promise.all batches
   - **Complexity**: Medium
 
-- [ ] **Embedding caching strategy**: Cache embeddings between sessions
+- [x] **Embedding caching strategy**: Cache embeddings between sessions ✅ DONE (2026-06-11)
   - **Why**: Re-indexing same skills repeatedly wastes compute
-  - **Idea**: Hash-based cache in ~/.claude/.promptgraph/embedding-cache/
-  - **Complexity**: Medium
+  - **Implemented**: `embed-cache.js` — content-addressed SQLite cache at `~/.claude/.promptgraph/embed-cache.db`, keyed by `md5(model+text)`. Plus in-batch dedup of identical texts. Cold→cached: 13.3s→5ms measured. Disable via `PG_NO_EMBED_CACHE=1`.
 
 - [ ] **Lazy-load embedder model**: Don't init FlagEmbedding until first search
   - **Why**: `pg` CLI commands that don't search (install, list, etc.) spend 2-3s loading model

@@ -47,8 +47,10 @@ describe('validateSkill', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('rejects invalid name format', () => {
+  it('warns on invalid name format but still passes (name derived from filename)', () => {
     const fp = write('badname.md', `---\nname: Bad_Name!\ndescription: invalid name format test\n---\n${validBody}`);
-    expect(validateSkill(fp).ok).toBe(false);
+    const r = validateSkill(fp);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => /name/i.test(w))).toBe(true);
   });
 });

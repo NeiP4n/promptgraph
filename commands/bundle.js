@@ -98,11 +98,11 @@ export default async function handler(args, bin) {
     const { detectSkillsDirFromAPI: _detectDir } = await import('../github-import.js');
     process.stdout.write(chalk.gray(`  Checking ${repo} for skill subdirectory... `));
     const detected = await _detectDir(repo);
-    if (!detected) {
-      console.log(chalk.red('none found'));
+    if (detected === null) {
+      console.log(chalk.red('not found'));
       error(
-        `Cannot publish: no skill subdirectory found in ${repo}\n` +
-        `  Expected: skills/, prompts/, commands/, agents/, or any folder with .md files\n` +
+        `Cannot publish: no .md skill files found in ${repo}\n` +
+        `  Make sure the repo has .md skill files at root or in a skills/ subdirectory.\n` +
         `  Visit: https://github.com/${repo}`
       );
       process.exit(1);
@@ -117,6 +117,10 @@ export default async function handler(args, bin) {
       stars: 0
     };
     const json = JSON.stringify(bundle, null, 2);
+
+    const { requireGhAuth } = await import('../marketplace.js');
+    const auth = requireGhAuth();
+    if (!auth.ok) { error(auth.error); process.exit(1); }
 
     if (doPush) {
       const registryDir = path.join(os.tmpdir(), 'pg-push-registry');
@@ -147,40 +151,7 @@ export default async function handler(args, bin) {
       const result = await publishBundle(tmp);
       fs.unlinkSync(tmp);
       if (result?.error) { error(result.error); process.exit(1); }
-      if (result.gh_not_installed) {
-        const bodyText = 'Bundle definition:\n\n```json\n' + json + '\n```';
-
-        // Copy body to clipboard
-        let copied = false;
-        try {
-          if (process.platform === 'win32') {
-            const r = spawnSync('powershell', ['-NoProfile', '-Command', `Set-Clipboard -Value ${JSON.stringify(bodyText)}`], { stdio: 'pipe' });
-            copied = r.status === 0;
-          } else if (process.platform === 'darwin') {
-            const r = spawnSync('pbcopy', [], { input: bodyText, stdio: ['pipe','ignore','ignore'] });
-            copied = r.status === 0;
-          }
-        } catch {}
-
-        // Open browser
-        try {
-          if (process.platform === 'win32') {
-            spawnSync('powershell', ['-NoProfile', '-Command', `Start-Process 'https://github.com/NeiP4n/promptgraph-registry/issues/new'`], { stdio: 'ignore' });
-          } else {
-            spawnSync(process.platform === 'darwin' ? 'open' : 'xdg-open', ['https://github.com/NeiP4n/promptgraph-registry/issues/new'], { stdio: 'ignore' });
-          }
-        } catch {}
-
-        console.log(chalk.bold('\n👉 Browser opened → github.com/NeiP4n/promptgraph-registry/issues/new'));
-        console.log('   Title: ' + chalk.cyan('Bundle: ' + name));
-        if (copied) {
-          console.log(chalk.green('✓ Description copied to clipboard — paste (Ctrl+V) into the body field, then Submit'));
-        } else {
-          console.log(chalk.yellow('\nPaste this into the body:\n') + chalk.gray(bodyText));
-        }
-      } else {
-        success(`Bundle proposed! Submit: ${result.submit_url}`);
-      }
+      success(`Bundle submitted: ${result.issue_url}`);
     }
     process.exit(0);
   }
