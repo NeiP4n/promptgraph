@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectSkillSubdir } from '../github-import.js';
+import { selectSkillSubdir, bundleDisplayName } from '../github-import.js';
 
 describe('selectSkillSubdir', () => {
   it('returns null for empty input', () => {
@@ -72,5 +72,23 @@ describe('selectSkillSubdir', () => {
     const r = selectSkillSubdir(['skills/a/SKILL.md', 'tooling/build.py']);
     expect(r.subdir).toBe('skills');
     expect(r.hasScripts).toBe(false);
+  });
+});
+
+describe('bundleDisplayName', () => {
+  it('prefixes owner for generic repo names', () => {
+    expect(bundleDisplayName('rockorager/skills')).toBe('Rockorager Skills');
+    expect(bundleDisplayName('vercel-labs/skills')).toBe('Vercel Labs Skills');
+    expect(bundleDisplayName('microsoft/skills')).toBe('Microsoft Skills');
+    expect(bundleDisplayName('google/skills')).toBe('Google Skills');
+  });
+
+  it('uses the repo name when it is descriptive', () => {
+    expect(bundleDisplayName('softaworks/agent-toolkit')).toBe('Agent Toolkit');
+    expect(bundleDisplayName('shinpr/claude-code-workflows')).toBe('Claude Code Workflows');
+  });
+
+  it('handles full github URLs and .git suffix', () => {
+    expect(bundleDisplayName('https://github.com/rockorager/skills.git')).toBe('Rockorager Skills');
   });
 });

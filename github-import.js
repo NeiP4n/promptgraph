@@ -22,6 +22,25 @@ export const SCRIPT_GLOBS = ['**/*.py', '**/*.sh', '**/*.bash', '**/*.js', '**/*
 // (e.g. microsoft/skills). Recognized as skill locations despite .github being a skip dir.
 const COPILOT_SKILL_DIRS = new Set(['skills', 'prompts', 'agents', 'commands']);
 
+// Repo names too generic to make a good bundle title on their own — prefix the owner.
+const GENERIC_REPO_NAMES = new Set([
+  'skills', 'skill', 'prompts', 'prompt', 'agents', 'agent', 'commands', 'command',
+  'tools', 'toolkit', 'mcp', 'ai', 'claude', 'plugins', 'plugin', 'templates', 'library',
+]);
+
+// Build a human-friendly bundle name from "owner/repo". For generic repo names
+// (owner/skills → "Owner Skills") the owner is prefixed so titles aren't all "Skills".
+export function bundleDisplayName(ownerRepo) {
+  const [owner, repo = ''] = ownerRepo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('/');
+  const titlecase = (s) => s.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase());
+  const repoName = titlecase(repo);
+  if (GENERIC_REPO_NAMES.has(repo.toLowerCase())) {
+    const ownerName = titlecase(owner);
+    return repoName ? `${ownerName} ${repoName}` : ownerName;
+  }
+  return repoName || titlecase(owner);
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 const repoStats = new Map()

@@ -137,7 +137,8 @@ export default async function handler(args, bin) {
     const hasScripts = hasScriptsQuick || deepResult.hasScripts;
     console.log(chalk.green(`  ✓ ${deepResult.passed}/${deepResult.total} skills valid${hasScripts ? '  🔧 scripts detected' : ''}`));
 
-    const name = repo.split('/')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const { bundleDisplayName } = await import('../github-import.js');
+    const name = bundleDisplayName(repo);
     const id = repo.replace('/', '-').toLowerCase();
     const bundle = {
       id, name, repo_url: repo, author: repo.split('/')[0],
