@@ -77,6 +77,7 @@ pg marketplace                  # Browse community skill bundles (TUI)
 # Install
 pg install <id>                 # Install a skill by marketplace ID (pg-xxxxxx)
 pg import <github-url>          # Import skills directly from a GitHub repo URL
+pg add-dir <path>               # Index skills from a local folder (any platform)
 
 # Bundles
 pg bundle install <id>          # Install a bundle by ID
