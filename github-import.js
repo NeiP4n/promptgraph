@@ -205,70 +205,87 @@ export async function validateRepoSkills(ownerRepo) {
 
 const SCRIPT_EXTS_API = new Set(['.py', '.sh', '.bash', '.js', '.ts', '.rb']);
 
-function countValidMd(fileEntries) {
-  return fileEntries.filter(e =>
-    e.type === 'file' && e.name.endsWith('.md') &&
-    !SKIP_RE.test(e.name.replace(/\.md$/i, '').toLowerCase())
-  ).length;
-}
-
-function hasScriptFiles(fileEntries) {
-  return fileEntries.some(e => e.type === 'file' && SCRIPT_EXTS_API.has(path.extname(e.name).toLowerCase()));
-}
-
 // Ask GitHub API which subdir to use (without cloning anything). Exported for validation.
 // Returns { subdir, label, validMdCount, hasScripts } or null (repo not found / no skills).
+//
+// Uses the recursive git-tree API (1 call) and counts .md files RECURSIVELY under each
+// candidate dir. This handles nested layouts like skills/cloud/*.md or skills/<name>/SKILL.md
+// where a skill dir holds category subfolders rather than .md files directly — the old
+// shallow per-dir listing reported "0 skills" for those and blocked publishing.
 export
 async function detectSkillsDirFromAPI(ownerRepo) {
+  let tree;
   try {
-    const json = await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents`);
-    const entries = JSON.parse(json);
+    tree = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/git/trees/HEAD?recursive=1`));
+  } catch {
+    return null; // repo not found or inaccessible
+  }
+  if (!tree || !Array.isArray(tree.tree)) return null;
 
-    // 1. Known skill dir names (priority order)
-    const dirMap = new Map(entries.filter(e => e.type === 'dir').map(e => [e.name.toLowerCase(), e.name]));
-    for (const d of SKILL_DIRS) {
-      if (dirMap.has(d)) {
-        try {
-          const sub = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dirMap.get(d)}`));
-          const validMdCount = countValidMd(sub);
-          if (validMdCount === 0) continue; // dir exists but no valid skills — try next
-          return { subdir: dirMap.get(d), label: d, validMdCount, hasScripts: hasScriptFiles(sub) };
-        } catch {}
+  const blobs = tree.tree.filter(f => f.type === 'blob');
+  if (blobs.length === 0) return null;
+
+  // A path is a valid skill .md if the filename isn't meta (readme/license/…) and no
+  // path segment is a skip dir (docs/tests/assets/…).
+  const isValidMd = (p) => {
+    if (!p.endsWith('.md')) return false;
+    if (SKIP_RE.test(path.basename(p, '.md').toLowerCase())) return false;
+    const segs = p.split('/');
+    for (const seg of segs.slice(0, -1)) if (SKIP_DIRS_API.has(seg.toLowerCase())) return false;
+    return true;
+  };
+  const mdBlobs = blobs.filter(f => isValidMd(f.path));
+  if (mdBlobs.length === 0) return null;
+
+  const countUnder  = (prefix) => mdBlobs.filter(f => f.path.startsWith(prefix)).length;
+  const scriptUnder = (prefix) => blobs.some(f => f.path.startsWith(prefix) && SCRIPT_EXTS_API.has(path.extname(f.path).toLowerCase()));
+
+  // Map of top-level dir names (lowercase -> real casing)
+  const topDirs = new Map();
+  for (const f of blobs) {
+    const idx = f.path.indexOf('/');
+    if (idx > 0) { const d = f.path.slice(0, idx); topDirs.set(d.toLowerCase(), d); }
+  }
+
+  // 1. Known skill dir names (priority order) — counted recursively
+  for (const d of SKILL_DIRS) {
+    if (topDirs.has(d)) {
+      const real = topDirs.get(d);
+      const c = countUnder(`${real}/`);
+      if (c > 0) return { subdir: real, label: real, validMdCount: c, hasScripts: scriptUnder(`${real}/`) };
+    }
+  }
+
+  // 1.5 Nested skill dirs (e.g. .claude/skills, .claude-plugin/commands)
+  for (const prefix of ['.claude', '.claude-plugin']) {
+    if (topDirs.has(prefix)) {
+      const real = topDirs.get(prefix);
+      for (const d of SKILL_DIRS) {
+        const nested = `${real}/${d}`;
+        const c = countUnder(`${nested}/`);
+        if (c > 0) return { subdir: nested, label: nested, validMdCount: c, hasScripts: scriptUnder(`${nested}/`) };
       }
     }
+  }
 
-    // 1.5 Nested skills dirs (e.g. .claude/skills, .claude-plugin/commands)
-    for (const prefix of ['.claude', '.claude-plugin']) {
-      if (dirMap.has(prefix)) {
-        for (const d of SKILL_DIRS) {
-          const nested = `${prefix}/${d}`;
-          try {
-            const sub = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${nested}`));
-            const validMdCount = countValidMd(sub);
-            if (validMdCount > 0) return { subdir: nested, label: nested, validMdCount, hasScripts: hasScriptFiles(sub) };
-          } catch {}
-        }
-      }
-    }
+  // 2. Root-level .md files (skills kept directly at repo root)
+  const rootMd = mdBlobs.filter(f => !f.path.includes('/')).length;
 
-    // 2. Any subdir with valid .md files — pick the one with most
-    const subdirCandidates = entries.filter(e => e.type === 'dir' && !SKIP_DIRS_API.has(e.name.toLowerCase()));
-    let best = null, bestCount = 0, bestScripts = false;
-    for (const dir of subdirCandidates) {
-      try {
-        const sub = JSON.parse(await httpsGet(`https://api.github.com/repos/${ownerRepo}/contents/${dir.name}`));
-        const mdCount = countValidMd(sub);
-        if (mdCount > bestCount) { best = dir.name; bestCount = mdCount; bestScripts = hasScriptFiles(sub); }
-      } catch {}
-    }
-    if (best) return { subdir: best, label: best, validMdCount: bestCount, hasScripts: bestScripts };
+  // 3. Best non-skip top-level subdir by recursive .md count
+  let best = null, bestCount = 0;
+  for (const [low, real] of topDirs) {
+    if (SKIP_DIRS_API.has(low)) continue;
+    const c = countUnder(`${real}/`);
+    if (c > bestCount) { bestCount = c; best = real; }
+  }
 
-    // 3. Root-level valid .md files
-    const validMdCount = countValidMd(entries);
-    if (validMdCount >= 1) return { subdir: null, label: 'root', validMdCount, hasScripts: hasScriptFiles(entries) };
+  // Prefer root when it holds the skills (and is at least as rich as any subdir)
+  if (rootMd >= 1 && rootMd >= bestCount) {
+    return { subdir: null, label: 'root', validMdCount: rootMd, hasScripts: scriptUnder('') };
+  }
+  if (best) return { subdir: best, label: best, validMdCount: bestCount, hasScripts: scriptUnder(`${best}/`) };
 
-  } catch {}
-  return null; // repo not found or inaccessible
+  return null;
 }
 
 // Deep-validate a repo bundle via 1 API call (tree) + raw file fetches (not rate-limited).
