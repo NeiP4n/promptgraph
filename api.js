@@ -44,7 +44,7 @@ export async function index(sourceDir, sourceName) {
     const { skillId, vecToBlob } = await import('./db.js');
     const { chunkText } = await import('./chunker.js');
 
-    const files = globSync(`${sourceDir}/**/*.md`);
+    const files = globSync(`${sourceDir}/**/*.md`, { dot: true });
     let indexed = 0, skipped = 0, errors = 0;
     const batch = [];
 
@@ -118,7 +118,7 @@ export async function update() {
     const seenFiles = new Set();
     const allFiles = [];
     for (const { dir, source } of normalizedSources) {
-      const files = globSync(`${dir}/**/*.md`);
+      const files = globSync(`${dir}/**/*.md`, { dot: true });
       for (const f of files) {
         const norm = path.resolve(f);
         if (!seenFiles.has(norm)) { seenFiles.add(norm); allFiles.push({ file: norm, source }); }

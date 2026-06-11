@@ -284,7 +284,7 @@ export function localSkillCount(repoUrl) {
   const repoName = repoUrl.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace('/', '-');
   const dest = path.join(getSkillsStoreDir(), 'github', repoName);
   if (!fs.existsSync(dest)) return null;
-  const files = globSync(`${dest}/**/*.md`);
+  const files = globSync(`${dest}/**/*.md`, { dot: true });
   return files.length;
 }
 
@@ -702,7 +702,7 @@ export function pruneInvalidRepos() {
       continue;
     }
 
-    const mdFiles = globSync(`${src.dir}/**/*.md`).map(fp => path.resolve(fp));
+    const mdFiles = globSync(`${src.dir}/**/*.md`, { dot: true }).map(fp => path.resolve(fp));
     if (mdFiles.length === 0) {
       removed.push({ repo: repoName, reason: 'no .md files' });
       config.sources = config.sources.filter(s => s !== src);
@@ -823,7 +823,7 @@ export function validateAndPruneMarketplace() {
     return { ...results, message: 'No marketplace directory found.' };
   }
 
-  const mdFiles = globSync(`${getSkillsDir()}/**/*.md`, { absolute: true });
+  const mdFiles = globSync(`${getSkillsDir()}/**/*.md`, { absolute: true, dot: true });
   for (const fp of mdFiles) {
     const name = path.relative(getSkillsDir(), fp);
     try {

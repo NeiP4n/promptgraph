@@ -18,6 +18,10 @@ const SKILL_DIRS = ['skills', 'commands', 'prompts', 'agents', 'skills-store', '
 // array of explicit patterns instead so script detection works cross-platform.
 export const SCRIPT_GLOBS = ['**/*.py', '**/*.sh', '**/*.bash', '**/*.js', '**/*.ts', '**/*.rb'];
 
+// GitHub Copilot/agent convention places skills under .github/{skills,prompts,agents,commands}
+// (e.g. microsoft/skills). Recognized as skill locations despite .github being a skip dir.
+const COPILOT_SKILL_DIRS = new Set(['skills', 'prompts', 'agents', 'commands']);
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 const repoStats = new Map()
@@ -226,12 +230,19 @@ async function detectSkillsDirFromAPI(ownerRepo) {
   if (blobs.length === 0) return null;
 
   // A path is a valid skill .md if the filename isn't meta (readme/license/…) and no
-  // path segment is a skip dir (docs/tests/assets/…).
+  // path segment is a skip dir (docs/tests/assets/…). Exception: .github/{skills,
+  // prompts,agents,commands} is the GitHub Copilot/agent skill convention.
   const isValidMd = (p) => {
     if (!p.endsWith('.md')) return false;
     if (SKIP_RE.test(path.basename(p, '.md').toLowerCase())) return false;
     const segs = p.split('/');
-    for (const seg of segs.slice(0, -1)) if (SKIP_DIRS_API.has(seg.toLowerCase())) return false;
+    for (let i = 0; i < segs.length - 1; i++) {
+      const seg = segs[i].toLowerCase();
+      if (SKIP_DIRS_API.has(seg)) {
+        if (seg === '.github' && COPILOT_SKILL_DIRS.has((segs[i + 1] || '').toLowerCase())) continue;
+        return false;
+      }
+    }
     return true;
   };
   const mdBlobs = blobs.filter(f => isValidMd(f.path));
@@ -256,8 +267,8 @@ async function detectSkillsDirFromAPI(ownerRepo) {
     }
   }
 
-  // 1.5 Nested skill dirs (e.g. .claude/skills, .claude-plugin/commands)
-  for (const prefix of ['.claude', '.claude-plugin']) {
+  // 1.5 Nested skill dirs (.claude/skills, .claude-plugin/commands, .github/skills, …)
+  for (const prefix of ['.claude', '.claude-plugin', '.github']) {
     if (topDirs.has(prefix)) {
       const real = topDirs.get(prefix);
       for (const d of SKILL_DIRS) {
@@ -493,7 +504,7 @@ function finalizeCheckout(dest, success) {
     if (process.platform !== 'win32') {
       const scriptExts = ['.py', '.sh', '.bash', '.rb'];
       try {
-        const scripts = globSync(`${dest}/**/*{${scriptExts.join(',')}}`, { absolute: true });
+        const scripts = globSync(`${dest}/**/*{${scriptExts.join(',')}}`, { absolute: true, dot: true });
         for (const s of scripts) { try { fs.chmodSync(s, 0o755); } catch {} }
       } catch {}
     }
@@ -536,7 +547,7 @@ function detectSkillsDirLocal(repoRoot) {
   for (const dir of SKILL_DIRS) {
     const candidate = path.join(repoRoot, dir);
     if (fs.existsSync(candidate)) {
-      const files = globSync(`${candidate}/**/*.md`);
+      const files = globSync(`${candidate}/**/*.md`, { dot: true });
       if (files.length >= 1) return { dir: candidate, label: dir, sparse: true };
     }
   }
@@ -545,7 +556,7 @@ function detectSkillsDirLocal(repoRoot) {
     for (const dir of SKILL_DIRS) {
       const candidate = path.join(repoRoot, prefix, dir);
       if (fs.existsSync(candidate)) {
-        const files = globSync(`${candidate}/**/*.md`);
+        const files = globSync(`${candidate}/**/*.md`, { dot: true });
         if (files.length >= 1) return { dir: candidate, label: `${prefix}/${dir}`, sparse: true };
       }
     }
@@ -555,7 +566,7 @@ function detectSkillsDirLocal(repoRoot) {
 
 // Remove files classified as non-skills by embedding classifier (only if model is trained)
 async function classifierCleanup(dest) {
-  const mdFiles = globSync(`${dest}/**/*.md`);
+  const mdFiles = globSync(`${dest}/**/*.md`, { dot: true });
   if (mdFiles.length === 0) return;
 
   const parsed = [];
@@ -666,7 +677,7 @@ export async function importFromGitHub(repoUrl) {
   removeEmptyDirs(dest);
 
   // Validate every .md file via isSkillFile — delete low-quality files
-  const allMd = globSync(`${dest}/**/*.md`);
+  const allMd = globSync(`${dest}/**/*.md`, { dot: true });
   let removedInvalid = 0;
   for (const fp of allMd) {
     if (!isSkillFile(fp)) {
@@ -679,7 +690,7 @@ export async function importFromGitHub(repoUrl) {
   }
 
   // Full validateSkill() pass — remove files that fail marketplace-level validation
-  const remainingMd = globSync(`${dest}/**/*.md`);
+  const remainingMd = globSync(`${dest}/**/*.md`, { dot: true });
   let removedFailedValidation = 0;
   for (const fp of remainingMd) {
     const v = validateSkill(fp);
@@ -695,7 +706,7 @@ export async function importFromGitHub(repoUrl) {
   await classifierCleanup(dest);
 
   // Count survivors after all cleanup
-  const realCount = globSync(`${dest}/**/*.md`).length;
+  const realCount = globSync(`${dest}/**/*.md`, { dot: true }).length;
   const cacheKey = url.replace(/\.git$/, '');
   const cachePath = path.join(PROMPTGRAPH_DIR, 'skill-counts.json');
   try {
@@ -716,7 +727,7 @@ export async function importFromGitHub(repoUrl) {
   // repos with non-standard dir names (e.g. "specialized", "cli", or nested paths)
   const skillsDir = skillsSubdir ? path.join(dest, skillsSubdir) : localDir;
   const label = skillsSubdir || localLabel;
-  const mdFiles = globSync(`${skillsDir}/**/*.md`);
+  const mdFiles = globSync(`${skillsDir}/**/*.md`, { dot: true });
 
   if (mdFiles.length > MAX_FILE_COUNT) {
     console.warn(`Warning: ${mdFiles.length} .md files exceeds limit of ${MAX_FILE_COUNT} — truncating`);
@@ -755,7 +766,7 @@ function detectSubdirFromTree(repoRoot) {
     if (dirMap.has(d)) return dirMap.get(d);
   }
 
-  for (const prefix of ['.claude', '.claude-plugin']) {
+  for (const prefix of ['.claude', '.claude-plugin', '.github']) {
     if (dirMap.has(prefix)) {
       const realPrefix = dirMap.get(prefix);
       const sub = spawnSync('git', ['-C', repoRoot, 'ls-tree', '--name-only', `HEAD:${realPrefix}`], { encoding: 'utf8', stdio: 'pipe' });
@@ -845,18 +856,18 @@ export function cloneAndFilterRepo(ownerRepo, destBase, prog = () => {}) {
   // Make scripts executable on unix
   if (process.platform !== 'win32') {
     try {
-      const scripts = globSync(SCRIPT_GLOBS.map(p => `${destBase}/${p}`), { absolute: true });
+      const scripts = globSync(SCRIPT_GLOBS.map(p => `${destBase}/${p}`), { absolute: true, dot: true });
       for (const s of scripts) { try { fs.chmodSync(s, 0o755); } catch {} }
     } catch {}
   }
 
   // hasScripts = real scripts on disk in the materialized subdir (ground truth)
-  const hasScripts = globSync(SCRIPT_GLOBS.map(p => `${destBase}/${p}`), { absolute: true }).length > 0;
+  const hasScripts = globSync(SCRIPT_GLOBS.map(p => `${destBase}/${p}`), { absolute: true, dot: true }).length > 0;
 
   // Step 5: filter out non-skill files locally
   // absolute:true — otherwise glob returns cwd-relative paths; when destBase is not
   // under cwd those contain ".." and validateSkill flags every file as path-traversal.
-  const allMd = globSync(`${destBase}/**/*.md`, { absolute: true });
+  const allMd = globSync(`${destBase}/**/*.md`, { absolute: true, dot: true });
   prog(`Filtering ${allMd.length} files...`);
   let removed = 0;
   for (const fp of allMd) {
@@ -864,7 +875,7 @@ export function cloneAndFilterRepo(ownerRepo, destBase, prog = () => {}) {
   }
   if (removed > 0) removeEmptyDirs(destBase);
 
-  const remaining = globSync(`${destBase}/**/*.md`, { absolute: true });
+  const remaining = globSync(`${destBase}/**/*.md`, { absolute: true, dot: true });
   prog(`Validating ${remaining.length} skill files...`);
   let removedV = 0;
   for (const fp of remaining) {
@@ -873,7 +884,7 @@ export function cloneAndFilterRepo(ownerRepo, destBase, prog = () => {}) {
   }
   if (removedV > 0) removeEmptyDirs(destBase);
 
-  const realCount = globSync(`${destBase}/**/*.md`, { absolute: true }).length;
+  const realCount = globSync(`${destBase}/**/*.md`, { absolute: true, dot: true }).length;
 
   if (realCount < 1) {
     fs.rmSync(destBase, { recursive: true, force: true });

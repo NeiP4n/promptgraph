@@ -1,54 +1,25 @@
-# Last Session — 2026-06-11 14:46
+# Last Session — 2026-06-11 15:05
 
-## What we did
-- **Fixed critical TAR bug**: Downgraded tar from 7.5.16 → 6.2.1 (tar 7.x broke fastembed imports)
-  - Result: 6 blocked test suites now pass, all 264 tests ✅
-- **Fixed marketplace.test.js mock**: Added missing `getSkillsStoreDir` export
-- **Enhanced DoD.md**: 
-  - Added "Known Bugs" section (tar FIXED ✅, vitest hoisting PENDING ⚠️)
-  - Added "Feature Ideas & Enhancements" backlog (performance, features, UX)
-  - Added "Test Coverage Status" with full passing test suite (264/264)
-- **Created permanent workspace**: Moved from `/tmp/` to `C:\Users\Isako\.claude\promptgraph-src\`
+## Что делали
+- **Починили marketplace (critical)**: `localSkillCount()` в `marketplace.js` обращался к неимпортированному `SKILLS_STORE_DIR` → `ReferenceError`, из-за чего листинг бандлов отдавал "Registry unavailable", а установка repo-бандлов рапортовала ложную ошибку после успешного клона. Исправлено через `getSkillsStoreDir()`, функция экспортирована, добавлено 3 регресс-теста.
+- **Оптимизировали индексацию для слабых устройств**: новый `embed-cache.js` — постоянный content-addressed кэш эмбеддингов (`~/.claude/.promptgraph/embed-cache.db`, ключ `md5(model+text)`) + дедуп одинаковых чанков внутри батча. Переписан `embedBatch` в `embedder.js`. Замер: батч 200 текстов 13.3с (холодный) → **5мс** (кэш), векторы идентичны. Отключается `PG_NO_EMBED_CACHE=1`.
+- Версия 2.9.43 → 2.9.44, обновлены CHANGELOG.md и DoD.md.
 
-## Left off at
-All tests passing (264/264). Project in `.claude\promptgraph-src\` ready for next session.
-Git synced with GitHub (NeiP4n/promptgraph). DoD expanded with bug tracking and feature backlog.
+## На чём остановились
+Все тесты зелёные: **273/273** (было 264, +9 новых). Запущен реальный `pg reindex` (1527 скиллов) как финальная sanity-проверка переписанного `embedBatch` — вывод буферизуется через pipe, дождаться завершения.
 
-## Next steps
-1. **If new bugs found**: Use DoD.md bug template + quick-fix workflow
-2. **If implementing features**: Choose from Feature Ideas backlog in DoD.md, follow feature checklist
-3. **Fix vitest warnings (optional)**: Move vi.mock() in vector-store.test.js to top-level (non-blocking)
-4. **Add new ideas**: Simply update DoD.md "Feature Ideas & Enhancements" section with format:
-   ```markdown
-   - [ ] **Feature Name**: [description]
-     - **Why**: [motivation]
-     - **Complexity**: Low/Medium/High
-   ```
+## Следующий шаг
+1. Подтвердить, что фоновый `pg reindex` завершился без ошибок (`node index.js status`).
+2. Если ок — `npm publish` + git commit/push (DoD release checklist).
 
-## Current test status
-- ✅ Test Files: 14 passed
-- ✅ Tests: 264 passed
-- ⚠️ Warnings: 2 vitest hoisting (non-blocking, fix recommended)
-- 📦 All dependencies installed (tar 6.2.1)
-
-## Open questions
-- Should we upgrade fastembed when it supports tar 7.x?
-- Vitest hoisting warnings: fix now or defer to next session?
-
-## Session metrics
-- ~20 tool calls
-- Fixed 1 critical bug + 1 mock bug
-- Enhanced DoD with 30+ feature ideas + bug documentation
-- Moved to permanent workspace in .claude/
-
-## Key files for next session
-- **DoD.md**: Definition of done + bug tracking + feature ideas
-- **CHANGELOG.md**: Last 7 releases (2.9.37-2.9.43)
-- **package.json**: tar override for compatibility
+## Открытые вопросы
+- Vitest hoisting warnings (`tests/vector-store.test.js:357,370`) — всё ещё 2 шт., не блокируют.
+- Стоит ли поднимать первый прогон индексации ещё агрессивнее (меньше чанков на скилл / worker-threads) — пока не трогали, чтобы не терять recall.
 
 ## Quick commands
 ```bash
 cd C:\Users\Isako\.claude\promptgraph-src
-npm test                    # Run all tests (264/264)
-npm start                   # Start CLI
+npm test                      # 273/273
+node index.js reindex         # повторный прогон теперь ~мгновенный (кэш)
+PG_NO_EMBED_CACHE=1 ...        # отключить кэш эмбеддингов
 ```

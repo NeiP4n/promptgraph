@@ -122,7 +122,7 @@ export async function indexAll({ fast = false } = {}) {
   const seenFiles = new Set();
   const allFiles = [];
   for (const { dir, source } of normalizedSources) {
-    const files = globSync(`${dir}/**/*.md`);
+    const files = globSync(`${dir}/**/*.md`, { dot: true });
     for (const f of files) {
       const norm = sanitizePath(f);
       if (!seenFiles.has(norm)) {
@@ -285,7 +285,7 @@ export async function indexFile(filePath, source) {
 // Index only one source directory — fast mode first (no embeddings), then embed in background
 export async function indexSource(dir, sourceName) {
   const db = getDb();
-  const files = globSync(`${dir}/**/*.md`);
+  const files = globSync(`${dir}/**/*.md`, { dot: true });
   const total = files.length;
   info(`Indexing ${chalk.white.bold(total)} files from ${sourceName}...`);
 

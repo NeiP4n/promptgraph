@@ -95,6 +95,94 @@
 
 ---
 
+## v3.0 Ideas (Major Release)
+
+> Факты из кодовой базы, на которых основаны идеи. Ни одна не придумана.
+
+---
+
+### 🔴 Breaking / Architecture
+
+**1. Multilingual embedder (replace BGE-Small-EN-v1.5)**
+- **Факт**: `embedder.js` хардкодит `EmbeddingModel.BGESmallENV15` — English-only модель. Пользователи с русскими скиллами (как этот проект) получают деградацию качества поиска.
+- **Факт**: `embed-cache.db` кэшируется по `md5(MODEL_TAG + text)` где `MODEL_TAG = 'bge-small-en-v1.5'`. Смена модели = cache invalidation автоматически (уже заложено).
+- **Идея**: Сменить на `paraphrase-multilingual-MiniLM-L12-v2` или `bge-m3` — обе поддерживаются fastembed, работают на CPU. Это breaking change (HNSW индекс + кэш перестраиваются).
+- **Сложность**: Medium (замена 1 строки, но полный reindex у всех пользователей)
+
+**2. Persistent HNSW — убрать full rebuild на каждый reindex**
+- **Факт**: `indexer.js` → `buildAnnIndex()` каждый раз пересоздаёт весь HNSW с нуля из всех чанков в БД. При 20 359 векторах — ~30 секунд и пик памяти даже после `freeModel()`.
+- **Факт**: `hnswlib-node` поддерживает `index.addPoint()` инкрементально и `index.writeIndex()` / `index.readIndex()`.
+- **Идея**: Хранить HNSW файл в `.promptgraph/ann.bin` и только добавлять новые векторы при incremental reindex. Full rebuild только при смене модели или `pg doctor --rebuild`.
+- **Сложность**: High (нужна sync между SQLite chunks и HNSW id)
+
+**3. fastembed upgrade (tar 7.x)**
+- **Факт**: `package.json` → `"overrides": { "tar": "^6.2.0" }` — вынужденный даунгрейд из-за несовместимости fastembed с tar 7.x. tar 6.2.x имеет security warnings.
+- **Идея**: Дождаться/подтолкнуть fix в fastembed, затем убрать override. Это unblock для v3.0.
+- **Сложность**: Low (удалить 3 строки из package.json когда fastembed починят)
+
+---
+
+### 🟡 Search Quality
+
+**4. Hybrid search: BM25 + vector**
+- **Факт**: `search.js` использует только cosine similarity по HNSW. При точном совпадении слов (команда, имя скилла) BM25 дал бы score 1.0, тогда как вектор может промахнуться.
+- **Факт**: SQLite FTS5 уже есть в better-sqlite3, дополнительная зависимость не нужна.
+- **Идея**: При `pg search` делать параллельный FTS5 запрос + ANN, затем RRF (Reciprocal Rank Fusion). Улучшает точность для коротких запросов типа `"safe refactor"`.
+- **Сложность**: Medium
+
+**5. Query expansion / rewrite**
+- **Факт**: `embedder.js:embed()` получает сырой запрос пользователя. Если пользователь пишет по-русски ("отрефактори без багов"), embedder получает русский текст и матчит с английскими скиллами — плохо.
+- **Факт**: Система уже умеет звать LLM (это MCP сервер внутри Claude). Можно попросить Claude расширить запрос на английский перед embed.
+- **Идея**: Опциональный `PG_QUERY_EXPAND=1` режим: перед embed посылать запрос в `pg_search` через маленькую Claude Haiku промпт для перевода/расширения.
+- **Сложность**: Medium (нужен дополнительный MCP roundtrip)
+
+---
+
+### 🟡 Registry & Publishing
+
+**6. Децентрализованный реестр (федеративный)**
+- **Факт**: `marketplace.js` тянет `https://raw.githubusercontent.com/NeiP4n/promptgraph-registry/main/registry.json` — единственный источник. Если репозиторий удалён/недоступен — всё мертво.
+- **Факт**: `config.js` уже хранит `sources[]` — массив источников для индексации. Аналогичная структура применима к реестрам.
+- **Идея**: Поддержка нескольких реестров в конфиге (`pg registry add <url>`). Локальный реестр по умолчанию + community. Bundles из разных реестров мёрджатся.
+- **Сложность**: Medium
+
+**7. Bundle manifest v2 с зависимостями**
+- **Факт**: Текущий bundle формат (`registry.json`) поддерживает `skills[]`, `tool_files[]`, `repo_url`, `has_tools` — но нет зависимостей между бандлами.
+- **Факт**: `installBundle()` в `marketplace.js` не проверяет, установлены ли скиллы, на которые может ссылаться данный бандл.
+- **Идея**: `requires: ["bundle-id-1", "bundle-id-2"]` в манифесте. `installBundle` рекурсивно доустанавливает зависимости.
+- **Сложность**: Medium
+
+---
+
+### 🟢 UX / CLI
+
+**8. `pg search` с preview в TUI**
+- **Факт**: CLI `pg search <query>` (в `commands/search.js`) просто печатает список результатов в stdout. TUI marketplace уже реализован с навигацией.
+- **Идея**: Добавить интерактивный режим: `pg search` без аргументов открывает TUI с live-поиском + preview скилла при выборе (первые 400 символов). Enter — запустить скилл инструкцию.
+- **Сложность**: Medium (переиспользовать tui.js)
+
+**9. `pg doctor` автоматический repair**
+- **Факт**: `commands/doctor.js` только диагностирует. Пользователь видит "5 chunks orphaned" но должен сам чинить.
+- **Факт**: Orphan cleanup уже есть в `db.js` как отдельные SQL запросы, вызываемые в других местах.
+- **Идея**: `pg doctor --fix` автоматически применяет все найденные исправления с отчётом что было сделано. Dry-run по умолчанию, `--fix` для применения.
+- **Сложность**: Low
+
+**10. Skill preview в TUI перед установкой**
+- **Факт**: TUI (`tui.js`) показывает только name + description + code. При нажатии Enter сразу начинается установка.
+- **Факт**: `raw_url` у каждого скилла в реестре уже есть — можно скачать и показать превью.
+- **Идея**: Нажатие `Space` или `P` в TUI показывает первые 400 символов скилла (fetch по raw_url) до установки. `Enter` — устанавливает.
+- **Сложность**: Low
+
+---
+
+### 🟢 Fixes (должны войти в 3.0 до выпуска)
+
+- [ ] **Vitest hoisting warnings** в `tests/vector-store.test.js:357,370` — перенести `vi.mock('../db.js')` на уровень модуля
+- [ ] **fastembed tar override** — убрать когда fastembed починят
+- [ ] **`pg status` — показывать has_tools для установленных бандлов** — сейчас `status.js` не выводит эту информацию
+
+---
+
 ## Feature Ideas & Enhancements (Backlog)
 
 ### User Requests (Add here)

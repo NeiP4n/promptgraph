@@ -52,8 +52,8 @@ export default async function handler(args, bin) {
     const repo  = b.repo_url.split('/')[1];
     const clonedDir = path.join(githubDir, `${owner}-${repo}`);
     if (fs.existsSync(clonedDir) && fs.readdirSync(clonedDir).length > 0) {
-      const realCount = globSync(`${clonedDir}/**/*.md`, { absolute: true }).length;
-      const hasScripts = globSync(SCRIPT_GLOBS.map(p => `${clonedDir}/${p}`), { absolute: true }).length > 0;
+      const realCount = globSync(`${clonedDir}/**/*.md`, { absolute: true, dot: true }).length;
+      const hasScripts = globSync(SCRIPT_GLOBS.map(p => `${clonedDir}/${p}`), { absolute: true, dot: true }).length > 0;
       setCachedCount(b.repo_url, realCount);
       return { ...b, skillCount: realCount, has_tools: b.has_tools || hasScripts };
     }

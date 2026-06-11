@@ -21,7 +21,7 @@ export default async function handler(args, bin) {
   }
 
   const { globSync } = await import('glob');
-  const mdCount = globSync(`${abs}/**/*.md`, { absolute: true }).length;
+  const mdCount = globSync(`${abs}/**/*.md`, { absolute: true, dot: true }).length;
   if (mdCount === 0) {
     error(`No .md files found under ${abs}`);
     process.exit(1);

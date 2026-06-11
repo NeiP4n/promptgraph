@@ -29,6 +29,10 @@ const SKIP_DIRS = new Set([
 const BADGE_RE = /!\[.*\]\(https?:\/\/(img\.shields\.io|badge\.fury|travis-ci|github\.com\/[^)]+\/badge)/i;
 const README_HEADER_RE = /^#\s*readme\b/i;
 
+// GitHub Copilot / agent convention keeps real skills under .github/{skills,prompts,
+// agents,commands} (e.g. microsoft/skills). Allow those even though .github is a skip dir.
+const COPILOT_SKILL_DIRS = new Set(['skills', 'prompts', 'agents', 'commands']);
+
 export function hardFilter(filePath, raw) {
   const parts = filePath.replace(/\\/g, '/').split('/');
   const filename = parts[parts.length - 1];
@@ -42,9 +46,15 @@ export function hardFilter(filePath, raw) {
     return { pass: false, reason: `skip filename pattern: ${base}` };
   }
 
-  for (const part of parts.slice(0, -1)) {
-    if (SKIP_DIRS.has(part.toLowerCase())) {
-      return { pass: false, reason: `skip dir: ${part}` };
+  const dirSegs = parts.slice(0, -1);
+  for (let i = 0; i < dirSegs.length; i++) {
+    const seg = dirSegs[i].toLowerCase();
+    if (SKIP_DIRS.has(seg)) {
+      // .github/{skills,prompts,agents,commands}/… is a valid skill location
+      if (seg === '.github' && COPILOT_SKILL_DIRS.has((dirSegs[i + 1] || '').toLowerCase())) {
+        continue;
+      }
+      return { pass: false, reason: `skip dir: ${dirSegs[i]}` };
     }
   }
 

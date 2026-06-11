@@ -10,7 +10,7 @@ const TRAINING_DIR = path.resolve(__dirname, '../../registry/training');
 const MODEL_PATH = path.join(os.homedir(), '.claude', '.promptgraph', 'model.json');
 
 function readAllMd(dir) {
-  const files = globSync(`${dir}/**/*.md`);
+  const files = globSync(`${dir}/**/*.md`, { dot: true });
   return files.map(f => fs.readFileSync(f, 'utf8'));
 }
 
